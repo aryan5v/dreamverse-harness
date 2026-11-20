@@ -1,4 +1,7 @@
-/** Boot the bundle with the Reactor plugin over the SDK stand-in of `fixtures/reactor/`, and reach its catalog route. */
+/**
+ * Boot the bundle with the Reactor plugin over the SDK stand-in of `fixtures/reactor/` (streaming models) and the fake
+ * Clip Generation API of the provider tests (`installFakeReactor`), and reach its catalog route.
+ */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,6 +17,7 @@ export const model = { modality: 'video', provider: 'reactor', model: 'fast-h3-o
 
 /** Dispose every bundle that `boot` started. */
 export async function disposeBooted(): Promise<void> {
+  vi.unstubAllGlobals()
   for (const app of booted.splice(0).reverse()) await app.dispose()
 }
 

@@ -1,4 +1,7 @@
-/** Opt-in paid smoke for one real FastH3-Omni shot through the DreamVerse profile. */
+/**
+ * Opt-in paid smoke for one real FastH3-Omni shot through the DreamVerse profile. FastH3-Omni uses Reactor's Clip
+ * Generation HTTP API, so the run needs the API key only and no Python interpreter or reactor-sdk.
+ */
 import { copyFile } from 'node:fs/promises'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -14,7 +17,6 @@ it.skipIf(!run)('imports a paid Reactor shot through dv_shot_render', { timeout:
     'dv-reactor': {
       disabled: false,
       config: {
-        pythonPath: process.env['DV_REACTOR_PYTHON'] ?? 'python3',
         timeoutSeconds: 150,
         models: { 'fast-h3-omni': { profile: 'fast-h3-omni' } },
       },

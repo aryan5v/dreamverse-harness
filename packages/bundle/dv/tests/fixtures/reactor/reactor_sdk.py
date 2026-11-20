@@ -64,8 +64,6 @@ class Reactor:
 
     async def send_command(self, command, data):
         log(command, **data)
-        if command == "set_canvas":
-            return {"type": "canvas_accepted"}
         if command == "set_duration_seconds":
             self.seconds = data["duration_seconds"]
         if command == "start":
@@ -96,8 +94,6 @@ class Reactor:
             kind = "clip_failed" if os.environ.get("DV_REACTOR_MODE") == "fail" else "clip_generated"
             self.message({"type": kind, "data": {"clip": self.clip}})
             return {"type": "clip_queued", "data": {"clip": self.clip}}
-        if command == "play":
-            self.message({"type": "clip_finished", "data": {"clip": self.clip}})
         return None
 
     async def upload_file(self, path, *, name, mime_type):

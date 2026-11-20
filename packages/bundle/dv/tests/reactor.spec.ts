@@ -1,12 +1,13 @@
 /** Exercise the Reactor model through the bundle Loader, shot tool, and real asset pipeline. */
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { formatModelKey, type RenderRequest } from '@dv/models'
 import { formatCitation, type AssetId, type OperationToolValue } from '@dv/project'
 import { afterEach, expect, it, vi } from 'vitest'
 import { FFMPEG } from '../../../dv/api/tests/support.ts'
 import { bootBundle, type Bundle } from './bundle.ts'
+import { installFakeReactor } from '../../../dv/reactor/tests/fake-reactor-api.ts'
 import { boot, disposeBooted, model } from './reactor-support.ts'
 
 let bundle: Bundle | undefined
@@ -18,9 +19,11 @@ afterEach(async () => {
 })
 
 it('renders through the configured provider and imports the video and last still', async () => {
-  const { ctx, services, recording, readTrace } = await boot()
+  const { ctx, services, recording, trace } = await boot()
   execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=1344x768:r=24',
     '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono', '-t', '5.875', '-c:v', 'libx264', '-c:a', 'aac', recording])
+  const calls = installFakeReactor({ video: readFileSync(recording) })
+  const submissions = () => calls.filter(call => call.method === 'POST' && call.url.endsWith('/generations')).map(call => call.json)
   expect(ctx.dvModels.list({ provider: 'reactor' }).map(formatModelKey)).toEqual(expect.arrayContaining([
     'video/t2v/reactor/fast-h3-omni', 'video/ref2v/reactor/fast-h3-omni', 'video/fl2v/reactor/fast-h3',
     'video/ref2v/reactor/h3-reference-to-video-turbo-realtime', 'video/l2v/reactor/pika-h3-flex',
@@ -50,16 +53,15 @@ it('renders through the configured provider and imports the video and last still
   const video = ctx.dvAssetPool.get(outputIds[0]!)
   expect(video.duration_sec).toBeCloseTo(5.875)
   expect(await ctx.dvFfmpeg.probe(ctx.dvAssetPool.path(video.id))).toMatchObject({ hasAudio: true, width: 1344, height: 768 })
-  const trace = readTrace()
-  expect(trace.find(row => row['event'] === 'enqueue')).toMatchObject({
-    prompt: '<Picture 1> speaks like <Audio 1>', seconds: 5.875, seed: 42,
-    reference_images: [{ mime_type: 'image/png' }], reference_audios: [{ mime_type: 'audio/wav' }],
-    first_frame_image: { mime_type: 'image/png' }, last_frame_image: { mime_type: 'image/png' },
-  })
-  expect(trace.slice(-4)).toEqual([
-    { event: 'play', clip_id: 'fixture' }, { event: 'capture', seconds: 5.875 },
-    { event: 'disconnect' }, { event: 'close' },
+  expect(submissions()).toEqual([{ model: 'reactor/fast-h3-omni', input: {
+    prompt: '<Picture 1> speaks like <Audio 1>', seconds: 5.875, aspect: '16:9', seed: 42,
+    reference_images: ['file-1'], reference_audios: ['file-2'], first_frame_image: 'file-3', last_frame_image: 'file-4',
+  } }])
+  expect(calls.filter(call => call.method === 'POST' && call.url.endsWith('/files')).map(call => call.json)).toEqual([
+    { name: 'imported', size: 5, mime_type: 'image/png' }, { name: 'imported', size: 5, mime_type: 'audio/wav' },
+    { name: 'imported', size: 5, mime_type: 'image/png' }, { name: 'imported', size: 5, mime_type: 'image/png' },
   ])
+  expect(existsSync(trace)).toBe(false)
 
   expect(ctx.dvHardware.list()).toEqual([])
   expect(ctx.dvModels.resolve(['t2v'], { ...model, task: 't2v' })).toMatchObject({ hosting: 'managed' })
@@ -70,15 +72,16 @@ it('renders through the configured provider and imports the video and last still
   })
   expect(direct.status).toBe('done')
   const { timings } = direct.report as { timings: Record<string, unknown> }
-  expect(Object.keys(timings).sort()).toEqual(['connection', 'setup', 'generation', 'playback', 'capture', 'download', 'closing']
-    .map(phase => `reactor_${phase}_s`).sort())
+  expect(Object.keys(timings).sort()).toEqual(['reactor_download_s', 'reactor_generation_s', 'reactor_upload_s'])
   expect(Object.values(timings).every(value => typeof value === 'number')).toBe(true)
-  const directTrace = readTrace().slice(trace.length)
-  expect(directTrace.find(row => row['event'] === 'enqueue')).toEqual({
-    event: 'enqueue', prompt: 'A panda poses in a courtyard', seconds: 5.875, seed: 42,
-  })
-  expect(directTrace.some(row => row['event'] === 'upload')).toBe(false)
+  expect(submissions()[1]).toEqual({ model: 'reactor/fast-h3-omni', input: { prompt: 'A panda poses in a courtyard', seconds: 5.875, aspect: '16:9', seed: 42 } })
+  expect(calls.filter(call => call.url.endsWith('/files'))).toHaveLength(4)
 }, 20_000)
+
+const worldRequest: RenderRequest = {
+  prompt: 'A lake at dawn', references: [], firstFrame: null, lastFrame: null,
+  durationSec: 8, aspectRatio: '16:9', resolution: '720p', seed: 1, extra: {},
+}
 
 const textRequest: RenderRequest = {
   prompt: 'A lake at dawn', references: [], firstFrame: null, lastFrame: null,
@@ -89,6 +92,7 @@ it('extracts the last video frame when the recording audio runs longer', async (
   const { ctx, recording } = await boot()
   execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=s=64x64:r=24:d=1',
     '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono:d=3', '-c:v', 'libx264', '-c:a', 'aac', '-f', 'mp4', recording])
+  installFakeReactor({ video: readFileSync(recording) })
   const entry = ctx.dvModels.resolve(['t2v'], { ...model, task: 't2v' })
   const events = await Array.fromAsync(entry.render(textRequest))
   expect(events.map(event => event.kind)).toEqual(['last_frame', 'video_start', 'chunk', 'done'])
@@ -118,13 +122,13 @@ it.each([
 
 it('closes the session after a build failure or cancellation', async () => {
   const { ctx, trace, readTrace } = await boot()
-  const entry = ctx.dvModels.resolve(['t2v'], { ...model, task: 't2v' })
+  const entry = ctx.dvModels.resolve(['t2v'], { ...model, model: 'pixverse-r2-director', task: 't2v' })
   vi.stubEnv('DV_REACTOR_MODE', 'fail')
-  await expect(entry.render(textRequest)[Symbol.asyncIterator]().next()).rejects.toThrow('Reactor could not finish')
+  await expect(entry.render(worldRequest)[Symbol.asyncIterator]().next()).rejects.toThrow('Reactor could not finish')
   expect(readTrace().at(-2)).toEqual({ event: 'disconnect' })
   vi.stubEnv('DV_REACTOR_MODE', 'wait')
   const controller = new AbortController()
-  const result = entry.render(textRequest, controller.signal)[Symbol.asyncIterator]().next()
+  const result = entry.render(worldRequest, controller.signal)[Symbol.asyncIterator]().next()
   const reason = new Error('Cancelled by operator')
   try {
     await expect.poll(() => existsSync(trace) && readTrace().filter(row => row['event'] === 'enqueue').length).toBe(2)
@@ -138,6 +142,7 @@ it('closes the session after a build failure or cancellation', async () => {
 it('waits for local media processing and scratch cleanup when Reactor unloads', async () => {
   const { ctx, recording } = await boot()
   execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=s=64x64:r=24:d=8', '-c:v', 'libx264', recording])
+  installFakeReactor({ video: readFileSync(recording) })
   const fiber = [...ctx.loader.entries()].find(entry => entry.options.id === 'dv-reactor')?.fiber
   if (fiber === undefined) throw new Error('Missing Reactor plugin fiber')
   const entry = ctx.dvModels.resolve(['t2v'], { ...model, task: 't2v' })
@@ -204,6 +209,24 @@ it('uses the model workflow for a scripted take, a continuous stream, and a save
   expect(trace.filter(row => row['event'] === 'disconnect')).toHaveLength(3)
   expect(trace.filter(row => row['event'] === 'capture')).toHaveLength(2)
 }, 20_000)
+
+it('reports a failed Clip Generation render and a cancelled one through the model entry', async () => {
+  const { ctx, trace } = await boot()
+  const entry = ctx.dvModels.resolve(['t2v'], { ...model, task: 't2v' })
+  installFakeReactor({ statuses: [Response.json({
+    status: 'failed', files: null, error: { code: 'moderated', message: 'The prompt was moderated' },
+  })] })
+  await expect(Array.fromAsync(entry.render(textRequest))).rejects.toThrow('Reactor generation gen-1 failed with moderated: The prompt was moderated.')
+  const calls = installFakeReactor({ statuses: [Response.json({ status: 'running', files: null })] })
+  const controller = new AbortController()
+  const outcome = entry.render(textRequest, controller.signal)[Symbol.asyncIterator]().next()
+  const reason = new Error('Cancelled by operator')
+  await vi.waitFor(() => { expect(calls.some(call => call.url.endsWith('/generations/gen-1'))).toBe(true) })
+  controller.abort(reason)
+  await expect(outcome).rejects.toBe(reason)
+  expect(calls.filter(call => call.method === 'DELETE').map(call => new URL(call.url).pathname)).toEqual(['/sessions/gen-1'])
+  expect(existsSync(trace)).toBe(false)
+})
 
 it('adds and removes Reactor entries when the Loader applies new settings', async () => {
   bundle = await bootBundle()
