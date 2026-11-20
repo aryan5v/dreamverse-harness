@@ -24,7 +24,8 @@ export function apply(ctx: Context): void {
       const form = ctx.configForms.get<{ providers: Record<string, Record<string, unknown>> }>('llm-pi-ai')
       const state = form.getSnapshot()
       if (state.status !== 'ready' || !state.writable) throw new Error('Operator settings are unavailable.')
-      if (!await form.mutate([{ op: 'unset', path: ['providers', 'openrouter', 'apiKeyEnv'] }], state.revision)) {
+      // The whole profile is the chat route this page created; the generation key lives in the dv-openrouter section.
+      if (!await form.mutate([{ op: 'unset', path: ['providers', 'openrouter'] }], state.revision)) {
         throw new Error('Operator settings changed. Try again.')
       }
     },
