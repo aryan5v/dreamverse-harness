@@ -117,6 +117,13 @@ describe('DreamVerse bundle composition', () => {
     expect(nouns).toEqual(['dv-character', 'dv-location', 'dv-style', 'dv-ui-character', 'dv-ui-location', 'dv-ui-style'])
   })
 
+  it('pins the definition of the shot render tool that the agent sees', async () => {
+    const { ctx, dispose } = await bootBundle()
+    disposers.push(dispose)
+    const tools = ctx.tools.schemas().filter(tool => tool.name === 'dv_shot_render')
+    await expect(`${JSON.stringify(tools, null, 2)}\n`).toMatchFileSnapshot('./expected/tools/shot-render.json')
+  })
+
   it('pins the definitions of the text node tools that the agent sees', async () => {
     const { ctx, dispose } = await bootBundle()
     disposers.push(dispose)
