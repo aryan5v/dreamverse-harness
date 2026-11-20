@@ -4,12 +4,13 @@ Each shot renders with one video model. Each video model has a key of four field
 
 Providers may expose `dv_models_status`, `dv_models_load` and `dv_models_unload`. These operate on installed weights and GPU memory; they never download weights. Generation loads its requested model automatically, serializes switching with inference, and retains compatible shared components when supported. Do not unload a running generation. Do this procedure for each shot.
 
-`hosting: managed` identifies a provider-operated cloud model. A self-hosted model uses the configured server
-unless it also reports `worker_selection: true`.
+## Placement
+
+Read `hosting` and `worker_selection` from `dv_models_list` or `dv_models_get` before consulting device availability. A `managed` model runs on the provider's servers: submit the render directly. A `self-hosted` model uses its configured server unless it reports `worker_selection: true`. Consult device availability only when the user asks about devices or the model reports `worker_selection: true`.
 
 ## Independent workers
 
-Check the chosen model for `worker_selection` before checking hardware. Managed cloud models handle placement. When the model and render tools accept `worker`, use the IDs of enabled workers for explicit placement. For example, load Pika on a chosen worker, render its assigned clip there, then unload that worker only after its generation finishes. Omit `worker` only when automatic placement is intended. Never say you cannot control placement when `worker_selection` is available. Independent shots with all inputs available can run together: emit their render calls in the same tool batch. The provider reserves one worker per generation, prefers an already loaded model, and queues when eligible workers are busy.
+When the model and render tools accept `worker`, use the IDs of enabled workers for explicit placement. For example, load Pika on a chosen worker, render its assigned clip there, then unload that worker only after its generation finishes. Omit `worker` only when automatic placement is intended. Never say you cannot control placement when `worker_selection` is available. Independent shots with all inputs available can run together: emit their render calls in the same tool batch. The provider reserves one worker per generation, prefers an already loaded model, and queues when eligible workers are busy.
 
 ## Procedure
 
