@@ -17,6 +17,7 @@ import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor } from './ProviderEditor.tsx'
 import type {} from './slot-contract.ts'
 import type { en } from './locales.ts'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { OnboardingModal } from './OnboardingModal.tsx'
 import styles from './DeepSeekOnboardingDialog.module.css'
 
@@ -54,7 +55,7 @@ function assertNever(_value: never): never {
  * @returns the onboarding modal or null when onboarding needs no intervention.
  */
 export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): ReactNode {
-  const { complete, controller, useModels, operations, schema, t, renderSlot, automatic, explicit = false } = props
+  const { complete, controller, useModels, operations, schema, t, renderSlot, automatic, explicit = false, openSection } = props
   const [apiKey, setApiKey] = useState(explicit)
   const state = useModels(snapshot => snapshot)
   const readiness = onboardingReadiness(state)
@@ -87,6 +88,21 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
     /* v8 ignore next -- every current readiness variant is handled above */
     default:
       return assertNever(readiness)
+  }
+
+  if (!explicit) {
+    // First run asks the person to choose a provider in Settings, because the provider may be a local server or any
+    // third party rather than the official route this step used to assume.
+    return (
+      <OnboardingModal title={t('onboardingChooseTitle')} focusTitle>
+        <div className={styles.actions}>
+          <Button variant="outline" onClick={complete}>{t('onboardingChooseLater')}</Button>
+          <Button variant="primary" onClick={() => { openSection('models'); complete() }}>
+            {t('onboardingOpenModels')}
+          </Button>
+        </div>
+      </OnboardingModal>
+    )
   }
 
   const row = state.rows.find(candidate =>

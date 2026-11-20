@@ -116,7 +116,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     const ref = config.credentialRef.get()
     if (!isCredentialRefName(ref)) throw new Error('Invalid OpenRouter credential reference.')
     const credential = await ctx.credentials.resolve(credentialRef(ref))
-    if (credential === undefined) throw new Error('Save an OpenRouter API key in Video APIs settings.')
+    if (credential === undefined) throw new Error('Save an OpenRouter API key under Models → OpenRouter.')
     return credential.value
   }, config.pollIntervalMs)
   let registrationError: string | null = null
@@ -372,7 +372,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     settled: (outcome) => {
       registrationError = !outcome.ok ? 'Could not register OpenRouter models. Check the saved key and catalog.'
         : outcome.unavailable.length === 0 ? null
-          : `${outcome.unavailable.join(' ')} Remove unavailable models in Video, image & audio APIs settings.`
+          : `${outcome.unavailable.join(' ')} Remove unavailable models under Models → OpenRouter.`
     },
   })
   ctx.inject(['connection'], scope => scope.effect(() => scope.connection.fetch.register({

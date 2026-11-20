@@ -11,7 +11,7 @@
  * @module @dv/models
  */
 import { readFileSync } from 'node:fs'
-import { Service, type Context } from '@deepseek-ai/cordis'
+import { Service, type Context, type Volatile } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-skill'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -35,11 +35,18 @@ declare module '@deepseek-ai/cordis' {
 export interface Config {
   /** How long `catalog()` waits for one entry's `schema()` before it lists the entry with schema null, in ms. */
   catalogSchemaTimeoutMs: number
+  /**
+   * The model a new conversation starts on, by modality, as `{ provider, model }`. The DreamVerse composer records it
+   * as the conversation's `models.select` choice when a conversation without choices opens; an absent modality starts
+   * on Auto.
+   */
+  defaults: Volatile<Record<string, { provider: string; model: string }>>
 }
 
 /** Loader validation. */
-export const Config: z<Config> = z.object({
+export const Config = z.object({
   catalogSchemaTimeoutMs: z.natural().min(1).default(5000),
+  defaults: z.dict(z.object({ provider: z.string().required(), model: z.string().required() })).default({}).volatile(),
 })
 
 /** The fields of a model key. */

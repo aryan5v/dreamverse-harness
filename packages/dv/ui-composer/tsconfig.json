@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../api/remotes/tsconfig.client.json"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {
@@ -22,6 +25,9 @@
     },
     {
       "path": "../../client/ui-input-trigger"
+    },
+    {
+      "path": "../../client/ui-model-selection"
     },
     {
       "path": "../../client/ui-primitives"
