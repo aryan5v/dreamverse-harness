@@ -84,7 +84,7 @@ DreamVerse bundle [`@dv/bundle`](../../bundle/dv/README.zh.md) 以行 `dv-models
 | `seed` | 随机种子。 |
 | `extra` | 模型自有参数的值。`schema()` 描述它们，`validateGenerationRequest` 检查它们。 |
 
-`references` 和 `firstFrame` 承载 `dv_shot_render` 的 `reference` 和 `first_frame` 输入。
+`references`、`firstFrame` 和 `lastFrame` 分别承载 `dv_shot_render` 的 `reference`、`first_frame` 和 `last_frame` 输入。提供方通过注册目录条目并验证起始和结束图像来支持 `fl2v`。没有结束帧输入的旧记录解析为 `lastFrame: null`。此任务无需音频，是否生成声音取决于所选模型。
 
 | `RenderModelFacts` 字段 | 含义 |
 | --- | --- |

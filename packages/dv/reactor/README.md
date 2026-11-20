@@ -59,7 +59,9 @@ On a Web profile, `GET /api/dv/reactor/catalog` lists all models visible to the 
 <details>
 <summary>Provider implementation</summary>
 
-[The Cordis plugin](src/index.ts) registers the [model profiles](src/profiles.ts), resolves the API key on the host, and maps DreamVerse tasks to model inputs. [The SDK bridge](src/render.py) uses Reactor’s official Python SDK to open one bounded session per render, upload inputs, send commands, and capture a clip. PixVerse provides the MP4 directly through Reactor’s saved-step API. The bridge closes the session after capture, cancellation, or failure.
+[The Cordis plugin](src/index.ts) registers the [model profiles](src/profiles.ts), resolves the API key on the host, and maps DreamVerse tasks to model inputs. [The SDK bridge](src/render.py) uses Reactor’s official Python SDK to open one bounded session per render, upload inputs, send commands, and capture a clip. PixVerse provides the MP4 directly through Reactor’s saved-step API. The bridge closes the session after capture, cancellation, or failure. Helios reports its running frame count in `state.current_frame` after every completed chunk. The bridge uses that count to decide when to capture.
+
+No runtime invariant companion is published because Reactor registers entries in the shared model catalog and returns media to the shot renderer. There is no separate runtime record of either result. The bundle tests exercise Reactor session teardown and local recording cleanup.
 
 </details>
 

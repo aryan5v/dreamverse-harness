@@ -12,20 +12,19 @@
   "dependencies": {
     "@deepseek-ai/dsh-credentials": "workspace:*",
     "@deepseek-ai/dsh-subprocess": "workspace:*",
+    "@deepseek-ai/schemastery": "workspace:~",
     "@dv/asset-pool": "workspace:*",
     "@dv/ffmpeg": "workspace:*",
     "@dv/models": "workspace:*",
     "@dv/project": "workspace:*"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:~",
-    "@deepseek-ai/schemastery": "workspace:~"
+    "@deepseek-ai/cordis": "workspace:~"
   },
   "devDependencies": {
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
     "@deepseek-ai/dsh-client-connection": "workspace:*",
     "@deepseek-ai/cordis": "workspace:~",
-    "@deepseek-ai/schemastery": "workspace:~",
     "@types/node": "^22.20.0"
   }
 }

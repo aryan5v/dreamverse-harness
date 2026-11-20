@@ -59,7 +59,9 @@ DreamVerse 主机需要在 Python 3.10 或更高版本的环境中安装 `reacto
 <details>
 <summary>供应商实现</summary>
 
-[Cordis 插件](src/index.ts)注册[模型配置](src/profiles.ts)，在主机上读取 API 密钥，并将 DreamVerse 任务映射到模型输入。[SDK 桥接程序](src/render.py)使用 Reactor 官方 Python SDK 为每次渲染开启一个有时限的会话，上传素材、发出命令并录制片段。PixVerse 通过 Reactor 保存步骤的 API 直接提供 MP4。完成、取消或失败后，桥接程序关闭会话。
+[Cordis 插件](src/index.ts)注册[模型配置](src/profiles.ts)，在主机上读取 API 密钥，并将 DreamVerse 任务映射到模型输入。[SDK 桥接程序](src/render.py)使用 Reactor 官方 Python SDK 为每次渲染开启一个有时限的会话，上传素材、发出命令并录制片段。PixVerse 通过 Reactor 保存步骤的 API 直接提供 MP4。完成、取消或失败后，桥接程序关闭会话。Helios 在每个分块完成后通过 `state.current_frame` 报告累计帧数。桥接程序根据该帧数决定何时录制。
+
+Reactor 在共享模型目录中注册条目，并将媒体交给镜头渲染器。这两项结果都没有独立的运行时记录，因此此包不发布运行时不变量伴随模块。套件测试覆盖 Reactor 会话关闭和本地录制文件清理。
 
 </details>
 
@@ -97,7 +99,7 @@ DreamVerse 主机需要在 Python 3.10 或更高版本的环境中安装 `reacto
 
 - 流式工作流要求部署启用 Reactor 录制。PixVerse 使用 Reactor 保存步骤的文件。
 - 需要互动控制、实时麦克风或摄像头输入以及机器人会话的模型会出现在目录发现结果中。这些模型需要各自的工作流才能生成 DreamVerse 镜头。
-- 页面可启用 DreamVerse 内置的镜头模型配置。私有部署的别名通过主机 profile 配置。
+- 通过主机 profile 启用内置的镜头模型配置，并将别名映射到实现相同工作流的私有部署。
 - 取消时，插件请求 SDK 断开连接。如果主机在清理期间失去连接，服务端的会话时限仍然有效。
 
 <a id="dev-note"></a>

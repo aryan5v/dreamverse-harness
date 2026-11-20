@@ -13,6 +13,14 @@ def log(event, **data):
         stream.write(json.dumps({"event": event, **data}) + "\n")
 
 
+class Progress(dict):
+    def __getitem__(self, key):
+        value = super().__getitem__(key)
+        if key in {"frames_emitted", "current_frame"}:
+            log("read_progress", field=key, frames=value)
+        return value
+
+
 class Reactor:
     def __init__(self, *, model_name, api_key, max_session_duration_seconds):
         assert api_key == "rk_fixture"
@@ -63,7 +71,21 @@ class Reactor:
             if self.model == "reactor/ltx2":
                 self.message({"type": "generation_complete", "data": {"seconds_sent": self.seconds}})
             else:
-                self.message({"type": "chunk_complete", "data": {"frames_emitted": 192}})
+                mode = os.environ.get("DV_REACTOR_MODE")
+                if self.model == "reactor/helios":
+                    self.message({"type": "state", "data": Progress(current_frame=0)})
+                    for index, total in enumerate(range(33, 199, 33)):
+                        emitted = 33 if mode == "helios-per-chunk" else total
+                        self.message({"type": "chunk_complete", "data": Progress(chunk_index=index, frames_emitted=emitted)})
+                        self.message({"type": "state", "data": Progress(current_frame=total)})
+                    self.message({"type": "generation_failed"})
+                elif mode == "chunks":
+                    counts = (33, 66, 99, 132) if self.model == "reactor/longlive-v2" else (0, 44, 44, 44)
+                    for count in counts:
+                        self.message({"type": "chunk_complete", "data": Progress(frames_emitted=count)})
+                    self.message({"type": "generation_failed"})
+                else:
+                    self.message({"type": "chunk_complete", "data": {"frames_emitted": 192}})
                 return {"type": "generation_started", "data": {"fps": 24}}
         if command == "enqueue":
             self.clip["seconds"] = data["seconds"]

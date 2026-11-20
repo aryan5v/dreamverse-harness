@@ -55,10 +55,13 @@ async def render(request, phase):
         max_session_duration_seconds=request["timeoutSeconds"],
     )
     messages = asyncio.Queue()
+    workflow = request["workflow"]
     events = {
         "clip_generated", "clip_failed", "clip_finished", "clip_stopped",
-        "chunk_complete", "generation_complete", "generation_failed",
+        "generation_complete", "generation_failed",
     }
+    if workflow["kind"] == "chunks":
+        events.add("state" if workflow["frameCount"] == "session-state" else "chunk_complete")
 
     @reactor.on_message
     def on_message(message):
@@ -167,11 +170,15 @@ async def render(request, phase):
         fps = ((started or {}).get("data") or {}).get("fps") or workflow.get("fps")
         if not isinstance(fps, (int, float)) or fps <= 0:
             raise ClipError("Reactor did not report the frame rate of the stream.")
+        cumulative = workflow["frameCount"] == "cumulative"
         frames = 0
         while frames / fps < request["seconds"]:
             event, data = await next_message()
-            if event == "chunk_complete":
-                frames += data["frames_emitted"]
+            if event == "state":
+                frames = data["current_frame"]
+            elif event == "chunk_complete":
+                emitted = data["frames_emitted"]
+                frames = emitted if cumulative else frames + emitted
             elif event in {"generation_complete", "generation_failed"}:
                 raise ClipError("The Reactor stream ended before the requested duration.")
         return request["seconds"]
@@ -179,7 +186,6 @@ async def render(request, phase):
     try:
         await reactor.connect()
         phase("setup")
-        workflow = request["workflow"]
         if workflow["kind"] == "queue":
             seconds = await queue(workflow)
         elif workflow["kind"] == "take":

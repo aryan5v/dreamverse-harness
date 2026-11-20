@@ -8,6 +8,7 @@ export type Workflow =
   | {
     kind: 'chunks'
     prompt: 'set_prompt' | 'set_shot'
+    frameCount: 'session-state' | 'cumulative' | 'per-chunk'
     image?: 'set_conditioning' | 'set_image'
     fps?: number
     resolution?: true
@@ -103,22 +104,22 @@ export const profiles = {
   helios: {
     modelId: 'reactor/helios', name: 'Helios', tasks: ['t2v', 'i2v'],
     geometry: fixed('5:3', '768p', [1280, 768]), durations: range(1, 15),
-    workflow: { kind: 'chunks', prompt: 'set_prompt', image: 'set_conditioning', fps: 24 },
+    workflow: { kind: 'chunks', prompt: 'set_prompt', image: 'set_conditioning', frameCount: 'session-state', fps: 24 },
   },
   'longlive-v2': {
     modelId: 'reactor/longlive-v2', name: 'LongLive 2.0', tasks: ['t2v'],
     geometry: fixed('20:11', '704p', [1280, 704]), durations: range(1, 57),
-    workflow: { kind: 'chunks', prompt: 'set_shot', fps: 24 },
+    workflow: { kind: 'chunks', prompt: 'set_shot', frameCount: 'cumulative', fps: 24 },
   },
   'visko-orbis-stable': {
     modelId: 'reactor/visko-orbis-stable', name: 'Visko Orbis Stable', tasks: ['t2v', 'i2v'],
     geometry: { aspectRatios: ['16:9'], resolutions: ['1080p', '2k', '4k'] }, durations: range(1, 15),
-    workflow: { kind: 'chunks', prompt: 'set_prompt', image: 'set_image', resolution: true },
+    workflow: { kind: 'chunks', prompt: 'set_prompt', image: 'set_image', frameCount: 'per-chunk', resolution: true },
   },
   'visko-orbis-dynamic': {
     modelId: 'reactor/visko-orbis-dynamic', name: 'Visko Orbis Dynamic', tasks: ['t2v', 'i2v'],
     geometry: { aspectRatios: ['16:9'], resolutions: ['1080p', '2k', '4k'] }, durations: range(1, 15),
-    workflow: { kind: 'chunks', prompt: 'set_prompt', image: 'set_image', resolution: true },
+    workflow: { kind: 'chunks', prompt: 'set_prompt', image: 'set_image', frameCount: 'per-chunk', resolution: true },
   },
 } satisfies Record<string, Profile>
 

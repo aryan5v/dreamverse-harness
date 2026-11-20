@@ -1,9 +1,12 @@
 /** Browser settings and discovery types for the Reactor provider. */
 
 /** One configured DreamVerse alias and its Reactor deployment. */
-export type ReactorModelConfig<Profile extends string = string> = {
-  profile: Profile
+export type ReactorModelConfig = {
+  /** Bundled Reactor command schema for this alias. */
+  profile: string
+  /** Full deployment name when using a different Reactor model. */
   modelId?: string
+  /** Supported durations that replace the profile defaults. */
   durationsSec?: number[]
 }
 
