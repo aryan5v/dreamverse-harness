@@ -27,7 +27,13 @@ Generate DreamVerse shots with Reactor. Choose a model for text, supported refer
 
 Set `REACTOR_API_KEY` in the DreamVerse host's credential store or environment. In the profile's `cordis.patch.yml`, add the model aliases you want to enable. The DreamVerse bundle starts with an empty model list.
 
-The DreamVerse host needs `reactor-sdk==1.15.0` in a Python 3.10 or newer environment. If the host uses a dedicated Python environment, set its interpreter in the profile's `cordis.patch.yml`.
+The DreamVerse host needs `reactor-sdk==1.15.0` in a Python 3.10 or newer environment. Install it into the interpreter that you set as `pythonPath`:
+
+```sh
+python3 -m pip install 'reactor-sdk==1.15.0'
+```
+
+If the host uses a dedicated Python environment, run that environment's `python -m pip` and set its interpreter as `pythonPath` in the profile's `cordis.patch.yml`.
 
 ```yaml
 - id: dv-reactor
@@ -44,8 +50,11 @@ Look up a configured alias through `dv_models_list` with provider `reactor`. Use
 |---|---|---|
 | `pythonPath` | `python3` | Host interpreter that can import the Reactor SDK. |
 | `credentialRef` | `REACTOR_API_KEY` | Name that the harness credential store resolves for each render. |
-| `timeoutSeconds` | `360` | Deadline for capture and maximum lifetime of the Reactor session, in seconds. |
+| `timeoutSeconds` | `360` | Maximum lifetime of one Reactor session, in seconds. It covers connection, upload, generation, real-time playback or streaming, capture, and download. Integer from 1 to 3600. |
+| `catalogTimeoutSeconds` | `30` | Deadline for one `GET /api/dv/reactor/catalog` request to Reactor, in seconds. Integer from 1 to 300. |
 | `models` | Empty in the DreamVerse bundle | Model aliases for the generation tools. Each has a `profile` and optional `modelId` and `durationsSec` overrides. |
+
+The session lifetime must exceed the clip duration plus setup and generation time. Queued workflows play the clip back in real time before capture, and streamed workflows run in real time. Reactor bills for the session lifetime, so `timeoutSeconds` is also the cap on the cost of one render. The plugin registers only durations shorter than `timeoutSeconds`, so `dv_models_get` never lists a duration that cannot finish. For example, the default `360` removes the LTX durations of 360 seconds or more, and LTX supports at most 300 seconds. If an alias has no duration shorter than `timeoutSeconds`, loading the plugin or applying new settings fails with a message that names the alias and `timeoutSeconds`.
 
 Set `models` to a subset of profiles if your account has access to a smaller set. To register a private deployment that implements the same model commands, set its full `owner/name` as `modelId` and choose the corresponding `profile`.
 
@@ -61,6 +70,8 @@ On a Web profile, `GET /api/dv/reactor/catalog` lists all models visible to the 
 
 [The Cordis plugin](src/index.ts) registers the [model profiles](src/profiles.ts), resolves the API key on the host, and maps DreamVerse tasks to model inputs. [The SDK bridge](src/render.py) uses Reactor’s official Python SDK to open one bounded session per render, upload inputs, send commands, and capture a clip. PixVerse provides the MP4 directly through Reactor’s saved-step API. The bridge closes the session after capture, cancellation, or failure. Helios reports its running frame count in `state.current_frame` after every completed chunk. The bridge uses that count to decide when to capture.
 
+The plugin runs a Python bridge because the Reactor Python SDK is the official client for headless sessions, uploads, commands, and recording download. The plugin sends the API key to the bridge only on stdin, and the bridge process runs with the environment returned by `scrubbedParentEnv`, so the key never reaches the child environment.
+
 No runtime invariant companion is published because Reactor registers entries in the shared model catalog and returns media to the shot renderer. There is no separate runtime record of either result. The bundle tests exercise Reactor session teardown and local recording cleanup.
 
 </details>
@@ -70,7 +81,6 @@ No runtime invariant companion is published because Reactor registers entries in
 <a id="further-exploration"></a>
 ## Further Exploration
 
-- [Contribute a DreamVerse provider](../../../docs/cookbook/providers/reactor.md)
 - [Reactor model API reference](https://docs.reactor.inc/model-api-reference/overview)
 - [Reactor recordings](https://docs.reactor.inc/concepts/recordings)
 - [Reactor maintenance guide](../../../docs/cookbook/providers/reactor.md)

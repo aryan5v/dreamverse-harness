@@ -16,9 +16,11 @@ import { capture, type Upload } from './client.ts'
 import type { ReactorModelConfig } from './types.ts'
 import { profileFor, profiles, type ProfileName } from './profiles.ts'
 
-type ModelConfig = ReactorModelConfig & {
+type ModelConfig = Omit<ReactorModelConfig, 'profile' | 'durationsSec'> & {
   /** Bundled Reactor command schema for this alias. */
   profile: ProfileName
+  /** Supported durations that replace the profile defaults; the schema fills an empty list. */
+  durationsSec: readonly number[]
 }
 
 const profileNames = Object.keys(profiles) as ProfileName[]
@@ -31,8 +33,13 @@ export interface Config {
   pythonPath: string
   /** Name resolved by the harness credential store for each render. */
   credentialRef: string
-  /** Deadline for rendering and maximum lifetime of the paid Reactor session. */
+  /**
+   * Maximum lifetime of one paid Reactor session, in seconds: connection, upload, generation, real-time playback or
+   * streaming, capture and download. Registered durations are shorter than this value.
+   */
   timeoutSeconds: number
+  /** Deadline for one model catalog request, in seconds. */
+  catalogTimeoutSeconds: number
   /** Keys are DreamVerse aliases. Each names a published Reactor command schema. */
   models: Volatile<Record<string, ModelConfig>>
 }
@@ -42,6 +49,7 @@ export const Config = z.object({
   pythonPath: z.string().min(1).default('python3'),
   credentialRef: z.string().default('REACTOR_API_KEY'),
   timeoutSeconds: z.natural().min(1).max(3600).default(360),
+  catalogTimeoutSeconds: z.natural().min(1).max(300).default(30),
   models: z.dict(z.object({
     profile: z.union(profileNames).required(),
     modelId: z.string(),
@@ -73,12 +81,15 @@ function countLimits(profile: ReturnType<typeof profileFor>): Record<Media, numb
   return { image: profile.references?.images ?? 0, audio: profile.references?.audio ?? 0, video: profile.references?.video ?? 0 }
 }
 
-function modelFacts(config: Omit<ModelConfig, 'durationsSec'> & { durationsSec?: readonly number[] }): RenderModelFacts {
+function modelFacts(alias: string, config: ModelConfig, timeoutSeconds: number): RenderModelFacts & { durationsSec: number[] } {
   const profile = profileFor(config.profile)
   const modelId = config.modelId ?? profile.modelId
   if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(modelId)) throw new Error('Reactor model IDs use owner/name.')
-  const configuredDurations = config.durationsSec ?? []
-  const durationsSec = [...new Set(configuredDurations.length > 0 ? configuredDurations : profile.durations)].sort((a, b) => a - b)
+  const durationsSec = [...new Set(config.durationsSec.length > 0 ? config.durationsSec : profile.durations)]
+    .filter(duration => duration < timeoutSeconds).sort((a, b) => a - b)
+  if (durationsSec.length === 0) {
+    throw new Error(`Reactor model ${alias} has no duration shorter than timeoutSeconds (${timeoutSeconds}). Raise timeoutSeconds or choose shorter durations.`)
+  }
   return {
     modelId, ...profile.geometry, durationsSec, minDurationSec: Math.min(...durationsSec), maxDurationSec: Math.max(...durationsSec),
   }
@@ -87,7 +98,7 @@ function modelFacts(config: Omit<ModelConfig, 'durationsSec'> & { durationsSec?:
 /**
  * Register configured models. Model selection and request validation do not start a paid session.
  * @param ctx - the plugin context.
- * @param config - host interpreter, credential reference, model aliases and session deadline.
+ * @param config - host interpreter, credential reference, model aliases and the session and catalog deadlines.
  */
 export function apply(ctx: Context, config: Config): void {
   if (config.pythonPath.trim() === '') throw new Error('Configure a Python interpreter for Reactor.')
@@ -95,14 +106,14 @@ export function apply(ctx: Context, config: Config): void {
   const keyRef = credentialRef(config.credentialRef)
   const configured = () => Object.entries(config.models.get()).map(([alias, model]) => {
     if (!/^[a-z0-9][a-z0-9-]{0,119}$/.test(alias)) throw new Error('Reactor model aliases use lowercase letters, numbers and hyphens.')
-    return { alias, profile: profileFor(model.profile), facts: modelFacts(model) }
+    return { alias, profile: profileFor(model.profile), facts: modelFacts(alias, model, config.timeoutSeconds) }
   })
   ctx.inject(['connection'], scope => scope.effect(() => scope.connection.fetch.register({
     path: '/api/dv/reactor/catalog', methods: ['GET'], requestBody: 'buffered',
     fetch: async (request) => {
       const credential = await scope.credentials.resolve(keyRef)
       if (credential === undefined) return Response.json({ error: 'Set the Reactor API key on the host.' }, { status: 503 })
-      const signal = AbortSignal.any([request.signal, AbortSignal.timeout(config.timeoutSeconds * 1000)])
+      const signal = AbortSignal.any([request.signal, AbortSignal.timeout(config.catalogTimeoutSeconds * 1000)])
       try {
         const models = await listModels(credential.value, signal)
         const selected = configured()
@@ -128,7 +139,7 @@ export function apply(ctx: Context, config: Config): void {
     await Promise.allSettled(active)
   }, 'Reactor renders')
 
-  const mimeOf = (asset: AssetId): string => ctx.dvAssetPool.get(asset).mime.split(';')[0]?.trim().toLowerCase() ?? ''
+  const mimeOf = (asset: AssetId): string => ctx.dvAssetPool.get(asset).mime.replace(/;.*$/, '').trim().toLowerCase()
   const toUpload = (asset: AssetId): Upload => ({
     path: ctx.dvAssetPool.path(asset), mime: mimeOf(asset), name: ctx.dvAssetPool.get(asset).name,
   })
@@ -136,7 +147,7 @@ export function apply(ctx: Context, config: Config): void {
   const entries = ({ alias, profile, facts }: ReturnType<typeof configured>[number]): ModelEntry[] => {
     const { workflow, references } = profile
     const limits = countLimits(profile)
-    const durations = facts.durationsSec ?? []
+    const durations = facts.durationsSec
     const maxMiB = profile.maxUploadMiB ?? 25
     const hasScene = workflow.kind === 'take' || (workflow.kind === 'queue' && workflow.world === true)
 
@@ -217,11 +228,8 @@ export function apply(ctx: Context, config: Config): void {
         }
         const credential = await ctx.credentials.resolve(keyRef)
         if (credential === undefined) throw new Error(`Set the Reactor credential ${keyRef} on the DreamVerse host.`)
-        const assets: Record<Media, AssetId[]> = { image: [], audio: [], video: [] }
-        for (const asset of request.references) {
-          const kind = mediaOf(mimeOf(asset))
-          if (kind !== undefined) assets[kind].push(asset)
-        }
+        const ofKind = (kind: Media): AssetId[] => request.references.filter(asset => mediaOf(mimeOf(asset)) === kind)
+        const assets: Record<Media, AssetId[]> = { image: ofKind('image'), audio: ofKind('audio'), video: ofKind('video') }
         let audioOffset = 0
         for (const video of assets.video) {
           if (await ctx.dvAssetPool.hasAudio(video)) audioOffset++

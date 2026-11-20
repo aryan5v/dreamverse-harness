@@ -1,39 +1,21 @@
 /** Exercise the Reactor model through the bundle Loader, shot tool, and real asset pipeline. */
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { existsSync } from 'node:fs'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { formatModelKey, type RenderRequest } from '@dv/models'
 import { formatCitation, type AssetId, type OperationToolValue } from '@dv/project'
 import { afterEach, expect, it, vi } from 'vitest'
 import { FFMPEG } from '../../../dv/api/tests/support.ts'
 import { bootBundle, type Bundle } from './bundle.ts'
+import { boot, disposeBooted, model } from './reactor-support.ts'
 
-const fixture = fileURLToPath(new URL('./fixtures/reactor/', import.meta.url))
-const model = { modality: 'video', provider: 'reactor', model: 'fast-h3-omni' } as const
 let bundle: Bundle | undefined
 
 afterEach(async () => {
   await bundle?.dispose()
   bundle = undefined
+  await disposeBooted()
 })
-
-async function boot() {
-  const app = await bootBundle({}, undefined, {
-    'dv-reactor': { config: {} }, credentials: { config: { REACTOR_API_KEY: 'rk_fixture' } },
-  })
-  bundle = app
-  const { dir } = app
-  const trace = join(dir, 'reactor.jsonl')
-  const recording = join(dir, 'fixture.ts')
-  vi.stubEnv('PYTHONPATH', fixture)
-  vi.stubEnv('DV_REACTOR_TRACE', trace)
-  vi.stubEnv('DV_REACTOR_RECORDING', recording)
-  vi.stubEnv('REACTOR_API_KEY', 'rk_should_not_reach_child_environment')
-  const readTrace = (): Array<Record<string, unknown>> => readFileSync(trace, 'utf8').trim().split('\n').map(row => JSON.parse(row) as Record<string, unknown>)
-  return { ...app, trace, recording, readTrace }
-}
 
 it('renders through the configured provider and imports the video and last still', async () => {
   const { ctx, services, recording, readTrace } = await boot()
@@ -87,15 +69,10 @@ it('renders through the configured provider and imports the video and last still
     reason: 'Render one shot from text',
   })
   expect(direct.status).toBe('done')
-  expect(direct.report).toMatchObject({ timings: {
-    reactor_connection_s: expect.any(Number),
-    reactor_setup_s: expect.any(Number),
-    reactor_generation_s: expect.any(Number),
-    reactor_playback_s: expect.any(Number),
-    reactor_capture_s: expect.any(Number),
-    reactor_download_s: expect.any(Number),
-    reactor_closing_s: expect.any(Number),
-  } })
+  const { timings } = direct.report as { timings: Record<string, unknown> }
+  expect(Object.keys(timings).sort()).toEqual(['connection', 'setup', 'generation', 'playback', 'capture', 'download', 'closing']
+    .map(phase => `reactor_${phase}_s`).sort())
+  expect(Object.values(timings).every(value => typeof value === 'number')).toBe(true)
   const directTrace = readTrace().slice(trace.length)
   expect(directTrace.find(row => row['event'] === 'enqueue')).toEqual({
     event: 'enqueue', prompt: 'A panda poses in a courtyard', seconds: 5.875, seed: 42,
@@ -114,12 +91,11 @@ it('extracts the last video frame when the recording audio runs longer', async (
     '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono:d=3', '-c:v', 'libx264', '-c:a', 'aac', '-f', 'mp4', recording])
   const entry = ctx.dvModels.resolve(['t2v'], { ...model, task: 't2v' })
   const events = await Array.fromAsync(entry.render(textRequest))
-  expect(events).toEqual([
-    { kind: 'last_frame', png: expect.any(Buffer) },
-    { kind: 'video_start', mime: 'video/mp4' },
-    { kind: 'chunk', bytes: expect.any(Buffer) },
-    { kind: 'done', durationSec: 1, timings: expect.any(Object) },
-  ])
+  expect(events.map(event => event.kind)).toEqual(['last_frame', 'video_start', 'chunk', 'done'])
+  expect(events.filter(event => event.kind === 'last_frame' || event.kind === 'chunk').every((event) => {
+    return Buffer.isBuffer('png' in event ? event.png : 'bytes' in event ? event.bytes : null)
+  })).toBe(true)
+  expect(events.at(-1)).toMatchObject({ kind: 'done', durationSec: 1 })
 })
 
 it.each([

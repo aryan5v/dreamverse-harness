@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/cookbook/providers/reactor.md
-reactor.md: 55d5b163f0ef279b87efa6d56c8b18f66cd2f6c7
-reactor.zh.md: 84fa7ef01538a6ddac0cf909000ff06a34551250
+reactor.md: 538412179b47190e86668f1e90c50ca92e07a158
+reactor.zh.md: 660a881aa604ef4400d7ed8a659b4aa1e51f1aa5

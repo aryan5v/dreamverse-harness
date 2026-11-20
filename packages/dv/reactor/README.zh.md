@@ -27,7 +27,13 @@ kind: "package-reference"
 
 在 DreamVerse 主机的凭据存储或环境变量中设置 `REACTOR_API_KEY`。在 profile 的 `cordis.patch.yml` 中配置要启用的模型别名。DreamVerse 套件的默认模型列表为空。
 
-DreamVerse 主机需要在 Python 3.10 或更高版本的环境中安装 `reactor-sdk==1.15.0`。如果主机使用专用 Python 环境，请在 profile 的 `cordis.patch.yml` 中配置其解释器。
+DreamVerse 主机需要在 Python 3.10 或更高版本的环境中安装 `reactor-sdk==1.15.0`。请安装到设为 `pythonPath` 的解释器中：
+
+```sh
+python3 -m pip install 'reactor-sdk==1.15.0'
+```
+
+如果主机使用专用 Python 环境，请运行该环境的 `python -m pip`，并在 profile 的 `cordis.patch.yml` 中把其解释器设为 `pythonPath`。
 
 ```yaml
 - id: dv-reactor
@@ -44,8 +50,11 @@ DreamVerse 主机需要在 Python 3.10 或更高版本的环境中安装 `reacto
 |---|---|---|
 | `pythonPath` | `python3` | 能导入 Reactor SDK 的主机 Python 解释器。 |
 | `credentialRef` | `REACTOR_API_KEY` | harness 凭据存储在每次渲染时解析的名称。 |
-| `timeoutSeconds` | `360` | 录制的时限和 Reactor 会话最长时长，单位为秒。 |
+| `timeoutSeconds` | `360` | 单个 Reactor 会话的最长时长，单位为秒。涵盖连接、上传、生成、实时回放或流式输出、录制和下载。取 1 到 3600 的整数。 |
+| `catalogTimeoutSeconds` | `30` | 单次 `GET /api/dv/reactor/catalog` 请求 Reactor 的时限，单位为秒。取 1 到 300 的整数。 |
 | `models` | DreamVerse bundle 默认为空 | 可用于生成工具的模型别名。每项包含 `profile`，并可覆盖 `modelId` 和 `durationsSec`。 |
+
+会话时长必须大于片段时长加上准备和生成所需时间。排队工作流在录制前按实时速度回放片段，流式工作流按实时速度运行。Reactor 按会话时长收费，因此 `timeoutSeconds` 也是单次渲染的费用上限。插件只注册短于 `timeoutSeconds` 的时长，所以 `dv_models_get` 不会列出无法完成的时长。例如默认值 `360` 会去掉 LTX 中 360 秒及以上的时长，而 LTX 最长支持 300 秒。如果某个别名没有短于 `timeoutSeconds` 的时长，加载插件或应用新设置时会失败，错误信息指明该别名和 `timeoutSeconds`。
 
 如果账户只能访问部分模型，请在 `models` 中配置所需的配置子集。对于实现相同模型命令的私有部署，请将完整的 `owner/name` 填入 `modelId`，并选择对应的 `profile`。
 
@@ -61,6 +70,8 @@ DreamVerse 主机需要在 Python 3.10 或更高版本的环境中安装 `reacto
 
 [Cordis 插件](src/index.ts)注册[模型配置](src/profiles.ts)，在主机上读取 API 密钥，并将 DreamVerse 任务映射到模型输入。[SDK 桥接程序](src/render.py)使用 Reactor 官方 Python SDK 为每次渲染开启一个有时限的会话，上传素材、发出命令并录制片段。PixVerse 通过 Reactor 保存步骤的 API 直接提供 MP4。完成、取消或失败后，桥接程序关闭会话。Helios 在每个分块完成后通过 `state.current_frame` 报告累计帧数。桥接程序根据该帧数决定何时录制。
 
+插件运行 Python 桥接程序，因为 Reactor 官方 Python SDK 是无头会话、上传、命令和录制下载的官方客户端。插件只通过 stdin 把 API 密钥交给桥接程序，桥接进程使用 `scrubbedParentEnv` 返回的环境运行，因此密钥不会进入子进程环境。
+
 Reactor 在共享模型目录中注册条目，并将媒体交给镜头渲染器。这两项结果都没有独立的运行时记录，因此此包不发布运行时不变量伴随模块。套件测试覆盖 Reactor 会话关闭和本地录制文件清理。
 
 </details>
@@ -70,7 +81,6 @@ Reactor 在共享模型目录中注册条目，并将媒体交给镜头渲染器
 <a id="further-exploration"></a>
 ## 进一步阅读
 
-- [贡献 DreamVerse 提供商](../../../docs/cookbook/providers/reactor.zh.md)
 - [Reactor 模型 API 参考](https://docs.reactor.inc/model-api-reference/overview)
 - [Reactor 录制](https://docs.reactor.inc/concepts/recordings)
 - [Reactor 维护指南](../../../docs/cookbook/providers/reactor.zh.md)

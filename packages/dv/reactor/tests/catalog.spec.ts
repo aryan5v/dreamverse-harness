@@ -34,3 +34,13 @@ it('reports invalid credentials and malformed catalog data', async () => {
   await expect(listModels('rk_fixture', signal)).rejects.toThrow('HTTP 401')
   await expect(listModels('rk_fixture', signal)).rejects.toThrow('invalid model name or status')
 })
+
+it('rejects a model entry that is not an object', async () => {
+  vi.stubGlobal('fetch', vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json(['fixture/model'])))
+  await expect(listModels('rk_fixture', new AbortController().signal)).rejects.toThrow('invalid model entry')
+})
+
+it('rejects a response that is not a list', async () => {
+  vi.stubGlobal('fetch', vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ models: [] })))
+  await expect(listModels('rk_fixture', new AbortController().signal)).rejects.toThrow('invalid model catalog')
+})
