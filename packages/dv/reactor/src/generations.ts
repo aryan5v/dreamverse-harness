@@ -188,9 +188,9 @@ class GenerationSession {
       ? { retryMs: pollDelay(response, this.options.pollMs) } : generation
   }
 
-  /** Download one signed URL without credentials. */
+  /** Download one signed URL without credentials; it may redirect to storage because it carries no key. */
   async download(url: string): Promise<Buffer | null> {
-    const response = await fetch(httpsUrl(url, 'clip URL'), { redirect: 'error', signal: this.signal })
+    const response = await fetch(httpsUrl(url, 'clip URL'), { signal: this.signal })
     if (!response.ok) {
       await response.body?.cancel()
       return null
