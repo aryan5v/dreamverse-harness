@@ -132,7 +132,8 @@ When you dispose the plugin, the effect removes the entry. `register` throws whe
 1. Add a row for the plugin to the composition that must serve the models, such as `packages/bundle/dv/cordis.patch.yml`.
 2. Write `README.md` and `README.zh.md` with the `dsh-doc` skill and the `package-reference` template.
 3. In the README Model Experience section, document the entry descriptions, the prompt skills, and the refusal sentences.
-4. Do not edit `@dv/models`.
+4. Add and link the provider maintenance guide required by `docs/cookbook/adding-a-dreamverse-provider.md`.
+5. Do not edit `@dv/models`.
 
 ## Add a model to a provider plugin
 
