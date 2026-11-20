@@ -7,7 +7,6 @@ import {
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { RunPodView, WorkerConfig, WorkerView } from '@dv/hardware/types'
 import { errorMessage } from '@dv/ui-kit/api.ts'
-import { ModelsPage, type ModelsPageProps } from './ModelsPage.tsx'
 import { useCopy } from './locales.ts'
 import css from './RuntimeSettings.module.css'
 
@@ -18,7 +17,6 @@ export interface HardwareProps {
   runpodPods(this: void, ref: string): Promise<RunPodView[]>
   storeCredential(this: void, ref: string, value: string): Promise<void>
   removeCredential(this: void, ref: string): Promise<void>
-  models?: ModelsPageProps
 }
 
 const blank: WorkerConfig = { label: '', provider: 'fastvideo', enabled: true, transport: 'api',
@@ -35,13 +33,12 @@ function DeviceGlyph() {
 }
 
 /** Save worker coordinates without exposing saved keys or accepting private keys. */
-export function HardwarePage({ form, routing, check, storeCredential, removeCredential, runpodPods, models }: HardwareProps) {
+export function HardwarePage({ form, routing, check, storeCredential, removeCredential, runpodPods }: HardwareProps) {
   const t = useCopy()
   const snapshot = useSyncExternalStore(
     useCallback(listener => form.subscribe(listener), [form]), useCallback(() => form.getSnapshot(), [form]))
   const routingState = useSyncExternalStore(
     useCallback(listener => routing.subscribe(listener), [routing]), useCallback(() => routing.getSnapshot(), [routing]))
-  const [showModels, setShowModels] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [views, setViews] = useState<WorkerView[]>([])
   const [editor, setEditor] = useState<{
@@ -202,14 +199,7 @@ export function HardwarePage({ form, routing, check, storeCredential, removeCred
           </div>
         </div>
       </section>}
-      {models === undefined ? null : <section className={css.group} aria-label={t.models}>
-        <div className={css.groupHeading}><h3>{t.models}</h3><p>{t.modelsIntro}</p></div>
-        <details open={showModels} className={css.card}
-          onToggle={(event) => { setShowModels(event.currentTarget.open) }}>
-          <summary className={css.cardSummary}>{showModels ? t.hideModels : t.showModels}</summary>
-          {showModels ? <div className={css.cardBody}><ModelsPage {...models} /></div> : null}
-        </details>
-      </section>}
+
     </> : <form className={css.editor} aria-label={editor.original === null ? t.add : t.edit}
       onSubmit={(event) => { event.preventDefault(); void save() }}>
       <div><h3>{editor.original === null ? t.add : t.edit}</h3><p>{t.deviceHelp}</p></div>

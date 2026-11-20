@@ -83,7 +83,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.inputTriggers.registerSource(projectMentionSource(mentions, mediaTypes)), 'dv-composer: @ source')
   applyPrompt(ctx)
   registerChatMedia(ctx)
-  ctx.inject(['modelDirectories', 'remote'], (scope) => {
+  ctx.inject(['modelDirectories', 'remote', 'remote.session'], (scope) => {
     scope.effect(() => scope.slots.inject('conversation.input.model', () => scope.slots.register({
       name: 'conversation.input.model', priority: -1,
       inject: (sessionId): LlmPickerInjected => {

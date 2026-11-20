@@ -146,8 +146,8 @@ export function PickerPopover(props: PickerPopoverProps) {
     && `${item.label} ${item.tag ?? ''}`.toLowerCase().includes(needle)), [items, filters, filter, needle])
   const shownGroups = groups.filter(entry => visible.some(item => item.group === entry.id))
   const shownLeading = needle === '' && filter === null ? leading : []
-  const detail = [...shownLeading, ...visible]
-    .find(item => item.id === focus || (focus === null && item.selected && item.extra !== undefined))
+  // The detail card follows the pointer and the keyboard, and stays out of the way when neither is on a row.
+  const detail = focus === null ? undefined : [...shownLeading, ...visible].find(item => item.id === focus)
 
   const choose = (id: string): void => {
     if (!onSelect(id)) return

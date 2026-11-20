@@ -175,6 +175,7 @@ export function Connections({ providers: registry, connections, page }: Injected
   const [drawer, setDrawer] = useState<DrawerTarget | null>(null)
   const [managing, setManaging] = useState<string | null>(null)
   const [picking, setPicking] = useState('')
+  const [mediaFilter, setMediaFilter] = useState<CloudMedia | 'llm' | ''>('')
   const headingId = useId()
   const drawerTitleId = useId()
   useEffect(() => { connections.ensure(providers.map(({ provider }) => provider)) }, [connections, providers])
@@ -192,7 +193,12 @@ export function Connections({ providers: registry, connections, page }: Injected
   const piAi = page?.namespaces.get('llm-pi-ai')
   const protocols = piAi === undefined || page === undefined ? [] : protocolChoices(piAi, page.schema)
   const needle = picking.trim().toLowerCase()
-  const offered = rows.filter(row => `${row.entry.displayName} ${row.entry.provider}`.toLowerCase().includes(needle))
+  const offered = rows.filter(row => (mediaFilter === '' || mediaFilter === 'llm')
+    && `${row.entry.displayName} ${row.entry.provider}`.toLowerCase().includes(needle))
+  // The generation providers that serve the chosen media type, or can serve chat when LLM is chosen.
+  const offeredGeneration = providers.filter(({ provider }) => (mediaFilter === '' ? true
+    : mediaFilter === 'llm' ? provider.enableOperator !== undefined : provider.media.includes(mediaFilter))
+    && (needle === '' || provider.name.toLowerCase().includes(needle)))
   const connected = generation.length + llm.length
   return <section className={css.group} aria-labelledby={headingId}>
     <header className={css.groupHeading}>
@@ -303,6 +309,13 @@ export function Connections({ providers: registry, connections, page }: Injected
                     onClose={() => { setDrawer(null) }} />
                 </>
                 : <>
+                  <div className={css.chips} role="group" aria-label={text('类型', 'Type')}>
+                    {(['', 'llm', 'video', 'image', 'audio'] as const).map(option => <button
+                      key={option === '' ? 'all' : option} type="button" className={css.chip}
+                      aria-pressed={mediaFilter === option} onClick={() => { setMediaFilter(option) }}>
+                      {option === '' ? text('全部', 'All') : option === 'llm' ? text('语言模型', 'LLM') : mediaName(option)}
+                    </button>)}
+                  </div>
                   <label className={css.search}>
                     <IconSearchOutlineRegular size={14} />
                     <input autoFocus type="search" aria-label={text('搜索提供商', 'Search providers')}
@@ -310,14 +323,13 @@ export function Connections({ providers: registry, connections, page }: Injected
                       onChange={(event) => { setPicking(event.target.value) }} />
                   </label>
                   <div className={css.addGrid}>
-                    {providers.filter(({ provider }) => needle === '' || provider.name.toLowerCase().includes(needle))
-                      .map(({ provider }) => <button key={provider.id} type="button" className={css.addTile}
-                        onClick={() => { setDrawer({ kind: 'generation', id: provider.id }) }}>
-                        <ProviderMark provider={provider} />
-                        <span className={css.tileText}><strong>{provider.name}</strong><span>{provider.domain}</span></span>
-                        {accounts.get(provider.id)?.status === 'connected'
-                          ? <span className={css.tileNote}>{text('已连接', 'Connected')}</span> : null}
-                      </button>)}
+                    {offeredGeneration.map(({ provider }) => <button key={provider.id} type="button" className={css.addTile}
+                      onClick={() => { setDrawer({ kind: 'generation', id: provider.id }) }}>
+                      <ProviderMark provider={provider} />
+                      <span className={css.tileText}><strong>{provider.name}</strong><span>{provider.domain}</span></span>
+                      {accounts.get(provider.id)?.status === 'connected'
+                        ? <span className={css.tileNote}>{text('已连接', 'Connected')}</span> : null}
+                    </button>)}
                     {offered.map(row => <button key={row.entry.provider} type="button" className={css.addTile}
                       onClick={() => { setDrawer({ kind: 'llm', provider: row.entry.provider }) }}>
                       <span className={css.initial} aria-hidden="true">{(row.entry.displayName === row.entry.provider
@@ -371,17 +383,19 @@ function GenerationEditor({ providers, connections, accounts, id, onBack }: {
       <IconChevronLeftOutlineRegular size={14} />{text('所有连接', 'All connections')}
     </button>
     <ProviderKeyForm provider={active.provider} state={active.state} connections={connections}
-      account={accounts.get(active.provider.id)} onClose={onBack} />
+      account={accounts.get(active.provider.id)} onClose={onBack} embedded />
   </>
 }
 
 /** The key form that saves, replaces, and checks one generation provider's key. */
-function ProviderKeyForm({ provider, state, account, connections, onClose }: {
+function ProviderKeyForm({ provider, state, account, connections, onClose, embedded = false }: {
   provider: CloudModelSettings
   state: CloudSelection
   account: AccountState | undefined
   connections: CloudConnections
   onClose: () => void
+  /** Draw the form bare, for an enclosing drawer that owns the title and the dismissal. */
+  embedded?: boolean
 }) {
   const text = useText()
   const mediaName = useMediaName()
@@ -398,6 +412,8 @@ function ProviderKeyForm({ provider, state, account, connections, onClose }: {
     return () => { document.removeEventListener('keydown', onKey) }
   }, [onClose])
   const saved = account?.status === 'connected' || account?.status === 'rejected' || account?.status === 'unavailable'
+  // The chat option is on while this key is the one the provider's own chat profile carries.
+  const chatEnabled = result === 'operator'
   const save = async (): Promise<void> => {
     setPending(true)
     setResult(null)
@@ -431,13 +447,16 @@ function ProviderKeyForm({ provider, state, account, connections, onClose }: {
   }[result]
   return <form className={css.sheet} role="dialog" aria-modal="true" aria-labelledby={titleId}
     onSubmit={(event) => { event.preventDefault(); void save() }}>
-    <header className={css.sheetHead}>
+    {embedded ? <header className={css.embeddedHead}>
+      <ProviderMark provider={provider} size={24} />
+      <span>{text(`连接 ${provider.name}`, `Connect ${provider.name}`)}</span>
+    </header> : <header className={css.sheetHead}>
       <ProviderMark provider={provider} size={28} />
       <h2 id={titleId}>{saved ? provider.name : text(`连接 ${provider.name}`, `Connect ${provider.name}`)}</h2>
       <button type="button" className={css.iconButton} aria-label={text('关闭', 'Close')} onClick={onClose}>
         <IconCloseOutlineRegular size={14} />
       </button>
-    </header>
+    </header>}
     <div className={css.sheetBody}>
       <section className={css.sheetCard}>
         <div className={css.keyState} data-tone={account?.status === 'connected' ? 'positive' : account?.status === 'rejected' ? 'negative' : 'muted'}>
@@ -471,12 +490,15 @@ function ProviderKeyForm({ provider, state, account, connections, onClose }: {
         </ul> : <p className={css.hint}>{catalog?.status === 'loading' ? text('正在加载模型…', 'Loading models…')
           : text('保存密钥后即可浏览模型。', 'Save a key to browse its models.')}</p>}
         {catalog?.status === 'ready' && catalog.warning !== undefined ? <p className={css.error} role="alert">{catalog.warning}</p> : null}
-        {provider.enableOperator === undefined ? null : <Button type="button" variant="outline" disabled={pending || !state.writable}
-          onClick={() => { void enableOperator() }}>{text('用于聊天 LLM', 'Use for chat LLMs')}</Button>}
+        {provider.enableOperator === undefined ? null : <label className={css.checkRow}>
+          <input type="checkbox" checked={chatEnabled} disabled={pending || !state.writable || account?.status !== 'connected'}
+            onChange={(event) => { if (event.target.checked) void enableOperator() }} />
+          <span>{text('也用于聊天 LLM', 'Also use for chat LLMs')}</span>
+        </label>}
       </section>
     </div>
-    <footer className={css.sheetFoot}>
-      <Button type="button" variant="outline" onClick={onClose}>{text('完成', 'Done')}</Button>
+    <footer className={css.sheetFoot} data-embedded={embedded ? '' : undefined}>
+      {embedded ? null : <Button type="button" variant="outline" onClick={onClose}>{text('完成', 'Done')}</Button>}
       <Button type="submit" variant="primary" disabled={pending || !state.writable || (key.trim() === '' && !saved)}>
         {pending ? text('检查中…', 'Checking…') : key.trim() === '' ? text('检查访问', 'Check access') : text('保存密钥', 'Save key')}
       </Button>
