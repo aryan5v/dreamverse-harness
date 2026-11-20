@@ -11,7 +11,7 @@ import type {} from '@dv/asset-pool'
 import type {} from '@dv/ffmpeg'
 import { assertModelAlias, catalogFailure, catalogMissingKey, registerAccountRoute, syncModelEntries, type ModelEntry, type RenderModelFacts, type RenderRequest, type RenderStreamEvent } from '@dv/models'
 import { citedAsset, citedInput, replacePromptCitations, type AssetId } from '@dv/project'
-import { checkAccess, listModels, ReactorCatalogError } from './catalog.ts'
+import { checkAccess, listModels, ReactorCatalogError, readBalance } from './catalog.ts'
 import { capture, type ClipRequest, type Upload } from './client.ts'
 import { generateClip } from './generations.ts'
 import type { ReactorModelConfig } from './types.ts'
@@ -161,7 +161,7 @@ export function apply(ctx: Context, config: Config): void {
     check: async (key, signal) => {
       await checkSdk(config.pythonPath, signal, config.catalogTimeoutSeconds)
       await checkAccess(key, signal, apiBaseUrl)
-      return { balanceUsd: null, label: null, limitRemainingUsd: null }
+      return { ...await readBalance(key, signal, apiBaseUrl), limitRemainingUsd: null }
     },
     isRejected: isKeyRefused,
   })
