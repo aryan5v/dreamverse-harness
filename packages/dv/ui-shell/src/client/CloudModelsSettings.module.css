@@ -1,0 +1,89 @@
+.section {
+  display: grid;
+  gap: 20px;
+  margin-block-start: 24px;
+  min-width: 0;
+  color: var(--dv-text);
+  font-size: 13px;
+}
+
+.section :is(h3, h4, p) { margin: 0; }
+.section h3 { font-size: 16px; font-weight: 500; }
+.section h4 { font-size: 14px; font-weight: 500; }
+.section p { color: var(--dv-text-2); line-height: 1.5; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.card, .connection, .tableWrap {
+  border: 1px solid var(--dv-line-strong);
+  border-radius: 12px;
+  background: var(--dv-surface-1);
+}
+
+.card { display: grid; gap: 16px; padding: 16px; }
+.providerHeading, .actions, .cardFooter, .filters, .enabledFilter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  color: var(--dv-accent-text);
+  background: var(--dv-accent-soft);
+}
+
+.cardFooter { justify-content: space-between; color: var(--dv-text-2); }
+.connection { padding: 16px; }
+.connection fieldset { display: grid; gap: 12px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.connection label, .tableSection { display: grid; gap: 8px; }
+.connection > p { margin-block-start: 8px; }
+.actions, .filters { flex-wrap: wrap; }
+.search { flex: 1 1 172px; }
+.filters select {
+  max-width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  color: var(--dv-text);
+  background: var(--dv-surface-1);
+  border: 1px solid var(--dv-line-strong);
+  border-radius: 8px;
+  font: inherit;
+}
+.enabledFilter { min-height: 32px; gap: 6px; color: var(--dv-text-2); }
+.section input[type='checkbox'] { width: 16px; height: 16px; margin: 0; accent-color: var(--dv-accent); vertical-align: middle; }
+.section :is(input[type='checkbox'], select):focus-visible { outline: 2px solid var(--dv-accent); outline-offset: 2px; }
+
+.tableWrap { overflow-x: auto; }
+.tableWrap table { width: 100%; text-align: start; border-collapse: collapse; }
+.tableWrap thead { background: var(--dv-surface-3); }
+.tableWrap :is(th, td) { padding: 10px 12px; vertical-align: middle; }
+.tableWrap th { text-align: start; font-weight: 500; }
+.tableWrap thead th { white-space: nowrap; }
+.tableWrap tbody tr + tr, .tableWrap tbody { border-block-start: 1px solid var(--dv-line); }
+.tableWrap tr > :last-child { text-align: center; }
+.tableWrap tbody th { width: 100%; overflow-wrap: anywhere; min-width: 96px; }
+.tableWrap small { display: block; margin-block-start: 2px; font-size: inherit; font-weight: 400; color: var(--dv-text-2); }
+.source { display: inline-block; padding: 2px 7px; border-radius: 6px; background: var(--dv-surface-3); }
+.empty { color: var(--dv-text-2); }
+.section p.error { color: var(--dv-danger); }
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}

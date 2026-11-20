@@ -6,7 +6,7 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { RunPodView, WorkerConfig, WorkerView } from '@dv/hardware/types'
 import { currentLanguage } from '@dv/ui-kit/locale.ts'
 import { HardwarePage } from './HardwarePage.tsx'
-import { ModelsPage, type InstalledModel } from './ModelsPage.tsx'
+import type { InstalledModel } from './ModelsPage.tsx'
 import { en, zh } from './locales.ts'
 
 export const inject = ['slots', 'configForms', 'remote', 'remote.credentials']
@@ -39,6 +39,12 @@ export function apply(ctx: Context): void {
     inject: () => ({
       form: ctx.configForms.get<{ workers: Record<string, WorkerConfig> }>('dv-hardware'),
       routing: ctx.configForms.get<{ useHardware: boolean }>('dv-fastvideo'), check,
+      models: { workers: check, catalog,
+        action: async (worker: string, action: 'load' | 'unload', model: string, task: string) => {
+          await json(`/api/dv/hardware/models?worker=${encodeURIComponent(worker)}`, { method: 'POST',
+            headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, model, task }) })
+        },
+      },
       runpodPods: async (credentialRef: string) => (await json<{ data: RunPodView[] }>('/api/dv/hardware/runpod/pods', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ credentialRef }),
       })).data,
@@ -52,14 +58,4 @@ export function apply(ctx: Context): void {
       },
     }),
   }, HardwarePage))
-  ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section', id: 'dv-generation-models', order: 12,
-    label: () => (currentLanguage() === 'zh' ? zh : en).models,
-    inject: () => ({ workers: check, catalog,
-      action: async (worker: string, action: 'load' | 'unload', model: string, task: string) => {
-        await json(`/api/dv/hardware/models?worker=${encodeURIComponent(worker)}`, { method: 'POST',
-          headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, model, task }) })
-      },
-    }),
-  }, ModelsPage))
 }

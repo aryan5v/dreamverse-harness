@@ -11,7 +11,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use this package to turn the DSH web app into DreamVerse. With no project open, the center shows the entry page: the chat composer, the template chips (focusable, `aria-disabled`, described by the 即将推出 / Coming soon tag, and inert), recent projects, and 探索 / Explore. 探索 shows one tab per entry that other plugins register in the `dv.explore` slot that the center declares, labeled and ordered by the entry, such as the MCP tab of `@dv/ui-mcp-presets` and the 技能 / Skills tab of `@dv/ui-skills`, and the selected tab's body; it is expanded until 收起 / Show less folds it, and absent while no plugin registers an entry. With a project open, it shows one view of the project, and the left sidebar starts collapsed. The views are the entries that other plugins register in the `dv.center.view` slot that the center declares, one tab of the view control each, labeled and ordered by the entry: 画布 / Canvas of `@dv/ui-canvas` and 时间线 / Timeline of `@dv/ui-timeline`. The left sidebar shows the navigator: 新建项目 / Create project, 首页 / Home, the DSH sidebar pages (插件 / Plugins, MCP, 技能 / Skills, and any other `sidebar.panellist` entry), and the project → chat session tree. 首页 opens this browser tab's blank entry chat and is highlighted while no project and no sidebar page is open. Every navigation of the shell closes an open sidebar page, so 首页 leaves Plugins or MCP. The right panel gets the 对话 / Chat and 轨迹 / Trajectory tabs. The shell also injects the DreamVerse theme: the `--dv-*` variables that every DreamVerse package draws with, and DSH's alias variables pointed at the same palette. Outside text fields, Ctrl+Z (Cmd+Z on macOS) moves the open project one step back and Shift+Ctrl+Z (Shift+Cmd+Z) one step forward; these keys move the current position of the history list and write no record.
+The DreamVerse shell provides the home page, project workspace, navigator, chat and trajectory panels, and generation provider settings.
 
 ## Table of Contents
 
@@ -25,6 +25,8 @@ Use this package to turn the DSH web app into DreamVerse. With no project open, 
 
 <a id="use-this-package"></a>
 ## Use this package
+
+Generation providers register their connection and catalog operations on `ctx.dvCloudModels`. **Settings → Models** displays the provider cards and one table for filtering and enabling models by source.
 
 Mount the plugin in a profile that stacks `dsh-web-app` (which provides the sidebars, the session and Workspace services, and the client module loader) and `@dv/api` (which serves the routes the shell calls). Mount `@dv/ui-asset-pool` and `@dv/ui-history` too: the right-panel button and the right-panel guide open their tabs. Mount `@dv/ui-canvas` and `@dv/ui-timeline` as well: they register the 画布 and 时间线 views of the center. Mount `@dv/ui-media` too: its `dv.media` Factory draws the project covers. Build the browser bundle first: `pnpm run build` writes `lib/client.js`.
 
@@ -59,6 +61,8 @@ The workspace renders the shown view with the owner props `projectId` (the open 
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
+
+Use this package to turn the DSH web app into DreamVerse. With no project open, the center shows the entry page: the chat composer, the template chips (focusable, `aria-disabled`, described by the 即将推出 / Coming soon tag, and inert), recent projects, and 探索 / Explore. 探索 shows one tab per entry that other plugins register in the `dv.explore` slot that the center declares, labeled and ordered by the entry, such as the MCP tab of `@dv/ui-mcp-presets` and the 技能 / Skills tab of `@dv/ui-skills`, and the selected tab's body; it is expanded until 收起 / Show less folds it, and absent while no plugin registers an entry. With a project open, it shows one view of the project, and the left sidebar starts collapsed. The views are the entries that other plugins register in the `dv.center.view` slot that the center declares, one tab of the view control each, labeled and ordered by the entry: 画布 / Canvas of `@dv/ui-canvas` and 时间线 / Timeline of `@dv/ui-timeline`. The left sidebar shows the navigator: 新建项目 / Create project, 首页 / Home, the DSH sidebar pages (插件 / Plugins, MCP, 技能 / Skills, and any other `sidebar.panellist` entry), and the project → chat session tree. 首页 opens this browser tab's blank entry chat and is highlighted while no project and no sidebar page is open. Every navigation of the shell closes an open sidebar page, so 首页 leaves Plugins or MCP. The right panel gets the 对话 / Chat and 轨迹 / Trajectory tabs. The shell also injects the DreamVerse theme: the `--dv-*` variables that every DreamVerse package draws with, and DSH's alias variables pointed at the same palette. Outside text fields, Ctrl+Z (Cmd+Z on macOS) moves the open project one step back and Shift+Ctrl+Z (Shift+Cmd+Z) one step forward; these keys move the current position of the history list and write no record.
 
 <details>
 <summary>Implementation internals — click to expand</summary>

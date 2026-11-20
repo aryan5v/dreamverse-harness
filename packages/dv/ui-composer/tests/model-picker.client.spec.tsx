@@ -42,6 +42,21 @@ describe('conversation model choices', () => {
     expect(restored.getByRole('button', { name: 'Video model: FastH3 Omni' })).toBeTruthy()
   })
 
+  it('distinguishes cloud and self-hosted entries with the same name', () => {
+    const state = createSnapshotStore(fixtureState())
+    const fasth3 = { ...model('fasth3'), display_name: 'FastH3' }
+    const catalog = createSnapshotStore<WireModelEntry[]>([
+      { ...fasth3, provider: 'reactor', hosting: 'managed' },
+      { ...fasth3, provider: 'uniserve', hosting: 'self-hosted' },
+    ])
+    const view = render(<ModelPicker sessionId="s1" modality="video" state={state} models={catalog}
+      reloadModels={() => {}} save={vi.fn()} />)
+    fireEvent.click(view.getByRole('button', { name: 'Video model: Auto' }))
+    const menu = within(document.body).getByRole('menu')
+    expect(within(menu).getByRole('menuitem', { name: 'FastH3 · Reactor · Cloud' })).toBeTruthy()
+    expect(within(menu).getByRole('menuitem', { name: 'FastH3 · UniServe · Self-hosted' })).toBeTruthy()
+  })
+
   it('keeps the previous choice and reports a save failure, and hides missing weights', async () => {
     const project = fixtureState()
     project.components['models'] = { conversations: { s1: { video: { provider: 'fastvideo', model: 'pika' } } } }

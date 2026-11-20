@@ -42,6 +42,9 @@
       "path": "../../client/ui-sidebar-right"
     },
     {
+      "path": "../../client/ui-settings-models"
+    },
+    {
       "path": "../../client/ui-slots"
     },
     {

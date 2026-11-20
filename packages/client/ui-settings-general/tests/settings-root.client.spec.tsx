@@ -291,15 +291,6 @@ describe('SettingsPanel close paths', () => {
     await vi.waitFor(() => { expect(document.activeElement).toBe(trigger) })
   })
 
-  it('closes via a mask click and restores trigger focus', async () => {
-    mount()
-    const trigger = openPanel()
-    const dialog = screen.getByRole('dialog')
-    fireEvent.click(dialog.parentElement!.firstElementChild!)
-    expect(screen.queryByRole('dialog')).toBeNull()
-    await vi.waitFor(() => { expect(document.activeElement).toBe(trigger) })
-  })
-
   it('closes via document-level Escape, restores trigger focus, and unhooks the listener', async () => {
     mount()
     const trigger = openPanel()

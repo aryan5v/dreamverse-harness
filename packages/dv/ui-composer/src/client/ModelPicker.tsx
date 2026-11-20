@@ -11,6 +11,13 @@ interface Selection { provider: string; model: string }
 /** The menu row id of a provider and model. */
 const choiceId = (choice: Selection): string => JSON.stringify([choice.provider, choice.model])
 
+const providerNames: Record<string, string> = {
+  reactor: 'Reactor',
+  openrouter: 'OpenRouter',
+  fastvideo: 'FastVideo',
+  uniserve: 'UniServe',
+}
+
 /** The modalities the composer offers a choice for, in the order their pickers show. */
 export const PICKER_MODALITIES = ['video', 'image', 'audio'] as const
 
@@ -72,7 +79,13 @@ export function ModelPicker({ sessionId, modality, state, models, reloadModels, 
   const selected = selectedModel(project, sessionId, modality)
   const selectedId = selected === null ? '' : choiceId(selected)
   const entry = choices.find(choice => choiceId(choice) === selectedId)
-  const label = selected === null ? pick('自动', 'Auto') : entry?.display_name ?? selected.model
+  const modelLabel = (choice: WireModelEntry): string => {
+    const name = choice.display_name ?? choice.model
+    if (choice.hosting === undefined) return name
+    const hosting = choice.hosting === 'managed' ? pick('云端', 'Cloud') : pick('自托管', 'Self-hosted')
+    return `${name} · ${providerNames[choice.provider] ?? choice.provider} · ${hosting}`
+  }
+  const label = selected === null ? pick('自动', 'Auto') : entry === undefined ? selected.model : modelLabel(entry)
   const choose = (id: string): void => {
     const next = choices.find(choice => choiceId(choice) === id)
     if (id !== '' && next === undefined) return
@@ -88,7 +101,7 @@ export function ModelPicker({ sessionId, modality, state, models, reloadModels, 
       portal side="top" compact autoFocus items={[
         { id: '', label: pick('自动 · 由智能体选择', 'Auto · let the operator choose') },
         ...choices.map(choice => ({ id: choiceId(choice),
-          label: choice.display_name ?? choice.model })),
+          label: modelLabel(choice) })),
       ]} anchor={<button type="button" className="dv-model-choice-trigger" aria-haspopup="menu" aria-expanded={open}
         aria-label={`${kind.long}${pick('：', ': ')}${label}`}
         title={`${pick('后续生成使用此模型，需要时加载；', 'Used for future generations; loads when needed. ')}${kind.kept}`}

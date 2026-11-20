@@ -67,7 +67,7 @@ export function ModelsPage({ workers, catalog, action }: ModelsPageProps) {
   const held = device?.busy === true || device?.loadingModel != null
   const error = failure ?? current.error
   return <section className={css.page}>
-    <header><h2>{t.models}</h2><p>{t.modelsIntro}</p></header>
+    <p>{t.modelsIntro}</p>
     <div className={css.toolbar}><label className={css.workerSelect}>{t.modelWorker}<select value={selected} onChange={(event) => {
       setSelected(event.target.value); setFailure(null); setNotice('')
     }}><option value="">{t.selectWorker}</option>{devices.filter(worker => worker.provider === 'fastvideo').map(worker => <option key={worker.id} value={worker.id}>{worker.label}{worker.enabled ? '' : ` · ${t.disabled}`}</option>)}</select></label>
