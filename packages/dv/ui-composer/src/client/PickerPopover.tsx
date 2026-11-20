@@ -102,15 +102,18 @@ export function PickerPopover(props: PickerPopoverProps) {
       const railWidth = rail.length === 0 ? 0 : RAIL_WIDTH
       const list = Math.min(LIST_WIDTH, window.innerWidth - 2 * EDGE - railWidth)
       const main = list + railWidth
-      const left = Math.max(EDGE, Math.min(rect.left, window.innerWidth - EDGE - main))
+      const left = Math.max(EDGE, Math.min(rect.left, window.innerWidth - EDGE - main - GAP - DETAIL_WIDTH))
       const side: DetailSide = left + main + GAP + DETAIL_WIDTH <= window.innerWidth - EDGE ? 'right'
         : left - GAP - DETAIL_WIDTH >= EDGE ? 'left' : 'stack'
-      const above = rect.top > window.innerHeight - rect.bottom
-      const anchor = Math.max(EDGE, above ? window.innerHeight - rect.top + GAP : rect.bottom + GAP)
-      const height = window.innerHeight - anchor - EDGE
-      const vertical = above ? { bottom: anchor } : { top: anchor }
-      setPosition({ side, list, height, style: { ...vertical, left, maxHeight: height,
-        ...(side === 'stack' ? { flexDirection: above ? 'column-reverse' : 'column' } : {}) } })
+      // The card hangs beside the list, so the popover always opens downward from the trigger and its own height
+      // stops at the window's bottom edge; a card taller than that space scrolls inside itself.
+      const below = rect.bottom + GAP
+      const fits = window.innerHeight - EDGE - below >= 240
+      const top = fits ? Math.max(EDGE, Math.min(below, window.innerHeight - EDGE - 240))
+        : Math.max(EDGE, rect.top - GAP - 440)
+      const height = window.innerHeight - top - EDGE
+      setPosition({ side, list, height, style: { top, left, maxHeight: height,
+        ...(side === 'stack' ? { flexDirection: 'column', width: main } : {}) } })
     }
     place()
     window.addEventListener('resize', place)

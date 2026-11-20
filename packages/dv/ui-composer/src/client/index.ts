@@ -83,7 +83,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.inputTriggers.registerSource(projectMentionSource(mentions, mediaTypes)), 'dv-composer: @ source')
   applyPrompt(ctx)
   registerChatMedia(ctx)
-  ctx.inject(['modelDirectories', 'remote', 'remote.session'], (scope) => {
+  ctx.inject(['modelDirectories', 'remote', 'remote.session', 'remote.llm', 'remote.credentials'], (scope) => {
     scope.effect(() => scope.slots.inject('conversation.input.model', () => scope.slots.register({
       name: 'conversation.input.model', priority: -1,
       inject: (sessionId): LlmPickerInjected => {
@@ -95,7 +95,21 @@ export function apply(ctx: ClientContext): void {
           select: selection => available ? directory.select(selection) : Promise.resolve(undefined),
           routable: async () => {
             const response = await scope.remote.session.modelCatalog()
-            return response.ok ? response.value.routableProviders : null
+            if (!response.ok) return null
+            const catalog = response.value
+            const directory = await scope.remote.llm.listConfigurableProviders()
+            if (!directory.ok) return catalog.routableProviders
+            const refOf = (id: string): string => `${id.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`
+            const described = await scope.remote.credentials.describe(directory.value.map(entry => refOf(entry.provider)))
+            if (!described.ok) return catalog.routableProviders
+            // A declared provider that holds no key cannot serve a request, so it is not offered; the deployment
+            // default stays because the agent already runs on it.
+            const ready = new Set(directory.value
+              .filter(entry => described.value[refOf(entry.provider)]?.configured === true)
+              .map(entry => entry.provider))
+            ready.add(catalog.default.provider)
+            const declared = new Set(directory.value.map(entry => entry.provider))
+            return catalog.routableProviders.filter(id => !declared.has(id) || ready.has(id))
           },
           logoOf: provider => scope.get('dvCloudModels')?.getSnapshot().find(entry => entry.id === provider)?.logo,
         }

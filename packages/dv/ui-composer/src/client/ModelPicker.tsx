@@ -124,6 +124,8 @@ export function ModelPicker({ sessionId, modality, state, models, reloadModels, 
 
 export interface ModelPickersProps extends Omit<ModelPickerProps, 'modality' | 'save'> {
   save: (modality: PickerModality, selection: Selection | null) => Promise<unknown>
+  /** The Settings defaults a conversation starts on, shown while the conversation has no choice of its own. */
+  defaults?: Readonly<Partial<Record<PickerModality, Selection>>>
   /** The logo of a provider, when its plugin draws one. */
   logoOf?: (provider: string) => ComponentType<{ size: number }> | undefined
 }
@@ -136,7 +138,7 @@ const rowOf = (modality: PickerModality, choice: Selection): string => JSON.stri
  * model makes it the conversation's choice of its media type; choosing the current choice again returns that type to
  * Auto. Models whose backend does not answer (`schema` null) are not listed.
  */
-export function ModelPickers({ sessionId, state, models, reloadModels, save, logoOf }: ModelPickersProps) {
+export function ModelPickers({ sessionId, state, models, reloadModels, save, logoOf, defaults = {} }: ModelPickersProps) {
   const pick = useText()
   const project = useSyncExternalStore(useCallback((listener: () => void) => state.subscribe(listener), [state]),
     useCallback(() => state.getSnapshot(), [state]))
@@ -150,7 +152,8 @@ export function ModelPickers({ sessionId, state, models, reloadModels, save, log
   const reachable = (catalog ?? []).filter(entry => entry.schema !== null)
   const choices = PICKER_MODALITIES.flatMap(modality => modelChoices(reachable, modality).map(entry => ({ modality, entry })))
   const selected = new Map(PICKER_MODALITIES.flatMap((modality) => {
-    const choice = selectedModel(project, sessionId, modality)
+    // A conversation without a choice of its own shows the Settings default it would start on.
+    const choice = selectedModel(project, sessionId, modality) ?? defaults[modality] ?? null
     return choice === null ? [] : [[modality, choice] as const]
   }))
   const providerIds = [...new Set(choices.map(({ entry }) => entry.provider))]
@@ -204,7 +207,7 @@ export function ModelPickers({ sessionId, state, models, reloadModels, save, log
     return true
   }
   return <span className="dv-model-choice">
-    <PickerPopover label={pick('生成模型', 'Generation model')} value={value} disabled={saving || project === null}
+    <PickerPopover label={pick('生成模型', 'Generation model')} value={value} disabled={saving}
       valueIcon={chosen[0] === undefined ? undefined : glyph(chosen[0].provider)}
       searchLabel={pick('搜索模型', 'Search models')} emptyLabel={pick('没有匹配的模型。', 'No models match.')}
       onOpen={reloadModels} onSelect={choose}

@@ -219,10 +219,23 @@ export function applyPrompt(ctx: ClientContext): void {
     const projectId = useSyncExternalStore(currentProject.subscribe, currentProject.getSnapshot)
     const state = states(projectId ?? '')
     const project = useSyncExternalStore(state.subscribe, state.getSnapshot)
-    const save = (modality: string, selection: { provider: string; model: string } | null) => projectId === null
-      ? Promise.reject(new Error('Open a project to choose its models.'))
-      : client.runOperation({ project: projectId, session: sessionId, surface: 'chat', operation: 'models.select',
-        params: { modality, ...selection === null ? { provider: '', model: '' } : selection } })
+    // With no project open, the picker edits the Settings default a new conversation starts on.
+    const save = async (modality: string, selection: { provider: string; model: string } | null) => {
+      if (projectId !== null) {
+        await client.runOperation({ project: projectId, session: sessionId, surface: 'chat', operation: 'models.select',
+          params: { modality, ...selection === null ? { provider: '', model: '' } : selection } })
+        return
+      }
+      const form = defaultsForm()
+      const current = form?.getSnapshot()
+      if (form === undefined || current === undefined) throw new Error('Settings are unavailable.')
+      const next = Object.fromEntries(Object.entries(current.value?.defaults ?? {})
+        .filter(([kind]) => kind !== modality))
+      if (selection !== null) next[modality] = selection
+      if (!await form.mutate([{ op: 'set', path: ['defaults'], value: next }], current.revision)) {
+        throw new Error('Settings changed elsewhere. Try again.')
+      }
+    }
     useEffect(() => {
       if (projectId === null || project === null || seeded.has(sessionId)) return
       const summaries: Readonly<Record<string, { blank: boolean } | undefined>> = ctx.sessions.list.getSnapshot().byId
@@ -238,6 +251,7 @@ export function applyPrompt(ctx: ClientContext): void {
     }, [projectId, project, sessionId])
     return createElement(ModelPickers, {
       key: `${projectId ?? ''}:${sessionId}`, sessionId, state, models, reloadModels: models.reload, save,
+      defaults: defaultsForm()?.getSnapshot().value?.defaults ?? {},
       logoOf: provider => ctx.get('dvCloudModels')?.getSnapshot().find(entry => entry.id === provider)?.logo,
     })
   }
