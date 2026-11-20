@@ -6,7 +6,8 @@ import {
   IconLinkOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Input, Menu, MenuItemButton, Switch,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-client-ui-settings-models/client'
+import type { ModelsHeaderOwnerProps } from '@deepseek-ai/dsh-client-ui-settings-models/client'
+import { CustomProviderCard, ProviderEditor, protocolChoices, providerUsable } from '@deepseek-ai/dsh-client-ui-settings-models/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-remotes/client'
@@ -71,6 +72,24 @@ interface InjectedProps {
   connections: CloudConnections
 }
 
+/** The page's own contributions, on top of the provider join the Models section hands to its header entries. */
+export interface ModelsPageProps extends ModelsHeaderOwnerProps, InjectedProps {
+  /** The settings forms and catalogs the default model rows read and write. */
+  source: DefaultModelsProps['source']
+}
+
+/**
+ * The Models page content: the default models, the one connections card, and the catalog table the footer draws.
+ * @param props - the provider join, the settings forms, and the provider registry.
+ * @returns the page content.
+ */
+export function ModelsPage({ source, providers, connections, ...owner }: ModelsPageProps) {
+  return <>
+    <DefaultModels source={source} providers={providers} />
+    <Connections providers={providers} connections={connections} page={owner} />
+  </>
+}
+
 /**
  * Mount the shared generation provider registry and the Models settings contributions.
  * @param ctx - the DreamVerse shell's browser context.
@@ -96,16 +115,15 @@ export function applyCloudModelsSettings(ctx: Context): void {
       },
     }
     scope.effect(() => scope.slots.inject('settings.models.header', () => scope.slots.register({
-      name: 'settings.models.header', id: 'dv-default-models', order: 0, inject: () => ({ source: defaults, providers }),
-    }, DefaultModels)), 'ui-shell: default models')
+      name: 'settings.models.header', id: 'dv-models-page', order: 0,
+      inject: () => ({ source: defaults, providers, connections }),
+    }, ModelsPage)), 'ui-shell: models page')
     scope.effect(() => scope.slots.inject('settings.models.footer', () => scope.slots.register({
       name: 'settings.models.footer', id: 'dv-cloud-models',
       inject: () => ({ providers, connections, loadLlmCatalog: defaults.llmCatalog }),
     }, ModelTable)), 'ui-shell: model table')
   })
-  ctx.effect(() => ctx.slots.inject('settings.models.header', () => ctx.slots.register({
-    name: 'settings.models.header', id: 'dv-connections', order: 10, inject: () => ({ providers, connections }),
-  }, Connections)), 'ui-shell: generation provider connections')
+
 }
 
 /** The status line of one connection row. */
@@ -126,38 +144,65 @@ function AccountLine({ account }: { account: AccountState | undefined }) {
   </span>
 }
 
+/** Words of a provider route id that a reader capitalizes differently from a plain title case. */
+const PROVIDER_WORDS: Readonly<Record<string, string>> = {
+  ai: 'AI', api: 'API', deepseek: 'DeepSeek', github: 'GitHub', huggingface: 'Hugging Face', llm: 'LLM',
+  minimax: 'MiniMax', moonshotai: 'Moonshot AI', nvidia: 'NVIDIA', openai: 'OpenAI', xai: 'xAI', zai: 'Z.ai',
+}
+
 /**
- * The connected generation providers with their key state and remaining balance.
- * @param props - the provider registry and the shared account state.
+ * Name a declared provider route for a card, such as `amazon-bedrock` for Amazon Bedrock.
+ * @param id - the route id.
+ * @returns the words of the id, each capitalized.
+ */
+const providerLabel = (id: string): string => id.split(/[-_.]/).filter(Boolean)
+  .map(word => PROVIDER_WORDS[word] ?? word[0]?.toUpperCase() + word.slice(1)).join(' ')
+
+/** The provider a drawer shows: a generation provider, one LLM directory row, or the custom-endpoint card. */
+type DrawerTarget = { kind: 'generation'; id: string } | { kind: 'llm'; provider: string } | { kind: 'custom' }
+
+/**
+ * Every configured connection in one list: the generation providers whose keys work and the LLM providers that can
+ * serve a request, with the drawer that configures any other provider.
+ * @param props - the provider registry, the shared account state, and the Models page join.
  * @returns the connections section.
  */
-export function Connections({ providers: registry, connections }: InjectedProps) {
+export function Connections({ providers: registry, connections, page }: InjectedProps & { page?: ModelsHeaderOwnerProps }) {
   const text = useText()
   const mediaName = useMediaName()
   const providers = useProviders(registry)
   const { accounts } = useSyncExternalStore(connections.subscribe, connections.getSnapshot)
-  const [open, setOpen] = useState<string | null>(null)
-  const [adding, setAdding] = useState(false)
+  const [drawer, setDrawer] = useState<DrawerTarget | null>(null)
+  const [managing, setManaging] = useState<string | null>(null)
+  const [picking, setPicking] = useState('')
   const headingId = useId()
-  const addTitleId = useId()
+  const drawerTitleId = useId()
   useEffect(() => { connections.ensure(providers.map(({ provider }) => provider)) }, [connections, providers])
   useEffect(() => {
-    if (!adding) return
-    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setAdding(false) }
+    if (drawer === null) return
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setDrawer(null) }
     document.addEventListener('keydown', close)
     return () => { document.removeEventListener('keydown', close) }
-  }, [adding])
-  if (providers.length === 0) return null
-  const connected = providers.filter(({ provider }) => accounts.get(provider.id)?.status === 'connected')
-  const active = providers.find(({ provider }) => provider.id === open)
+  }, [drawer])
+  const generation = providers.filter(({ provider }) => accounts.get(provider.id)?.status === 'connected')
+  const rows = page?.rows ?? []
+  const llm = rows.filter(row => row.entry.active && providerUsable(row))
+  const editing = drawer?.kind === 'llm' ? rows.find(row => row.entry.provider === drawer.provider) : undefined
+  const editingNamespace = editing === undefined ? undefined : page?.namespaces.get(editing.entry.settingsNs)
+  const piAi = page?.namespaces.get('llm-pi-ai')
+  const protocols = piAi === undefined || page === undefined ? [] : protocolChoices(piAi, page.schema)
+  const needle = picking.trim().toLowerCase()
+  const offered = rows.filter(row => `${row.entry.displayName} ${row.entry.provider}`.toLowerCase().includes(needle))
+  const connected = generation.length + llm.length
   return <section className={css.group} aria-labelledby={headingId}>
     <header className={css.groupHeading}>
       <h3 id={headingId}>{text('你的连接', 'Your connections')}</h3>
-      <p>{text('生成视频、图片和音频的服务。密钥保存在 Harness 凭据存储中。', 'The services that generate your video, image, and audio. Keys stay in the harness credential store.')}</p>
+      <p>{text('语言、视频、图片和音频模型背后的服务。密钥保存在 Harness 凭据存储中。',
+        'The services behind your LLM, video, image and audio models. Keys stay in the harness credential store.')}</p>
     </header>
     <div className={css.card}>
       <div className={css.cardHead}>
-        <span>{text(`${connected.length} 个已连接`, `${connected.length} connected`)}</span>
+        <span>{text(`${connected} 个已连接`, `${connected} connected`)}</span>
         <span className={css.headActions}>
           <button type="button" className={css.iconButton} aria-label={text('重新检查', 'Check again')}
             title={text('重新检查', 'Check again')}
@@ -165,17 +210,18 @@ export function Connections({ providers: registry, connections }: InjectedProps)
             <IconRefreshOutlineRegular size={14} />
           </button>
           <button type="button" className={css.iconButton} aria-label={text('添加连接', 'Add a connection')} aria-haspopup="dialog"
-            title={text('添加连接', 'Add a connection')} aria-expanded={adding} onClick={() => { setAdding(value => !value) }}>
+            title={text('添加连接', 'Add a connection')} aria-expanded={drawer !== null}
+            onClick={() => { setDrawer({ kind: 'generation', id: '' }) }}>
             <IconPlusOutlineRegular size={14} />
           </button>
         </span>
       </div>
       <ul className={css.rows}>
-        {connected.map(({ provider, state }) => {
+        {generation.map(({ provider, state }) => {
           const account = accounts.get(provider.id)
           return <li key={provider.id}>
             <button type="button" className={css.row} aria-haspopup="dialog"
-              aria-label={text(`管理 ${provider.name}`, `Manage ${provider.name}`)} onClick={() => { setOpen(provider.id) }}>
+              aria-label={text(`管理 ${provider.name}`, `Manage ${provider.name}`)} onClick={() => { setManaging(provider.id) }}>
               <ProviderMark provider={provider} />
               <span className={css.rowText}>
                 <strong>{provider.name}</strong>
@@ -197,33 +243,140 @@ export function Connections({ providers: registry, connections }: InjectedProps)
             </button>
           </li>
         })}
+        {llm.map(row => <li key={row.entry.provider}>
+          <button type="button" className={css.row} aria-haspopup="dialog"
+            aria-label={text(`管理 ${row.entry.displayName}`, `Manage ${row.entry.displayName}`)}
+            onClick={() => { setDrawer({ kind: 'llm', provider: row.entry.provider }) }}>
+            <span className={css.initial} aria-hidden="true">{row.entry.displayName.slice(0, 1)}</span>
+            <span className={css.rowText}>
+              <strong>{row.entry.displayName}</strong>
+              <span className={css.statusLine}><span className={css.dot} data-tone="positive" />{text('密钥已保存', 'Key saved')}</span>
+            </span>
+            <span className={css.rowMeta}>
+              <span className={css.metaLabel}>{text('类型', 'Serves')}</span>
+              <span>{text('语言模型', 'LLM')}</span>
+            </span>
+            <span className={css.rowMeta}>
+              <span className={css.metaLabel}>{text('提供商', 'Provider')}</span>
+              <span>{row.entry.provider}</span>
+            </span>
+            <span className={css.rowMeta} data-align="end">
+              <span className={css.metaLabel}>{text('余额', 'Balance')}</span>
+              <span className={css.numeric}>—</span>
+            </span>
+            <IconChevronRightOutlineRegular size={14} className={css.chevron} />
+          </button>
+        </li>)}
       </ul>
     </div>
-    {adding ? createPortal(<div className={css.sheetRoot}>
-      <div className={css.sheetMask} aria-hidden="true" onClick={() => { setAdding(false) }} />
-      <div className={css.sheet} role="dialog" aria-modal="true" aria-labelledby={addTitleId}>
+    {drawer === null ? null : createPortal(<div className={css.sheetRoot}>
+      <div className={css.sheetMask} aria-hidden="true" onClick={() => { setDrawer(null) }} />
+      <div className={css.sheet} role="dialog" aria-modal="true" aria-labelledby={drawerTitleId}>
         <header className={css.sheetHead}>
-          <h2 id={addTitleId}>{text('添加连接', 'Add a connection')}</h2>
-          <button type="button" className={css.iconButton} aria-label={text('关闭', 'Close')} autoFocus
-            onClick={() => { setAdding(false) }}><IconCloseOutlineRegular size={16} /></button>
+          <h2 id={drawerTitleId}>{text('添加连接', 'Add a connection')}</h2>
+          <button type="button" className={css.iconButton} aria-label={text('关闭', 'Close')}
+            onClick={() => { setDrawer(null) }}><IconCloseOutlineRegular size={16} /></button>
         </header>
-        <div className={css.sheetBody}><div className={css.addGrid}>
-          {providers.map(({ provider }) => <button key={provider.id} type="button" className={css.addTile}
-            onClick={() => { setAdding(false); setOpen(provider.id) }}>
-            <ProviderMark provider={provider} />
-            <span className={css.tileText}><strong>{provider.name}</strong><span>{provider.domain}</span></span>
-            {accounts.get(provider.id)?.status === 'connected' ? <span className={css.tileNote}>{text('已连接', 'Connected')}</span> : null}
-          </button>)}
-        </div></div>
+        <div className={css.sheetBody}>
+          {drawer.kind === 'generation' && drawer.id !== ''
+            ? <GenerationEditor providers={providers} connections={connections} accounts={accounts} id={drawer.id}
+              onBack={() => { setDrawer({ kind: 'generation', id: '' }) }} />
+            : drawer.kind === 'llm' && editing !== undefined && editingNamespace !== undefined && page !== undefined
+              ? <>
+                <button type="button" className={css.back} onClick={() => { setDrawer({ kind: 'generation', id: '' }) }}>
+                  <IconChevronLeftOutlineRegular size={14} />{text('所有连接', 'All connections')}
+                </button>
+                <ProviderEditor provider={editing.entry.provider} displayName={editing.entry.displayName}
+                  namespace={editingNamespace} schema={page.schema} settingsPath={editing.entry.settingsPath}
+                  operations={page.operations} t={page.t} readOnly={!page.writable}
+                  {...editing.entry.declared === true ? { declared: true } : {}}
+                  autoFocusCredential={editing.credential?.configured !== true}
+                  onClose={() => { setDrawer(null) }} />
+              </>
+              : drawer.kind === 'custom' && piAi !== undefined && page !== undefined
+                ? <>
+                  <button type="button" className={css.back} onClick={() => { setDrawer({ kind: 'generation', id: '' }) }}>
+                    <IconChevronLeftOutlineRegular size={14} />{text('所有连接', 'All connections')}
+                  </button>
+                  <CustomProviderCard taken={rows.map(row => row.entry.provider)} protocols={protocols}
+                    revision={piAi.revision} operations={page.operations} t={page.t} readOnly={!page.writable}
+                    onClose={() => { setDrawer(null) }} />
+                </>
+                : <>
+                  <label className={css.search}>
+                    <IconSearchOutlineRegular size={14} />
+                    <input autoFocus type="search" aria-label={text('搜索提供商', 'Search providers')}
+                      placeholder={text('搜索提供商', 'Search providers')} value={picking}
+                      onChange={(event) => { setPicking(event.target.value) }} />
+                  </label>
+                  <div className={css.addGrid}>
+                    {providers.filter(({ provider }) => needle === '' || provider.name.toLowerCase().includes(needle))
+                      .map(({ provider }) => <button key={provider.id} type="button" className={css.addTile}
+                        onClick={() => { setDrawer({ kind: 'generation', id: provider.id }) }}>
+                        <ProviderMark provider={provider} />
+                        <span className={css.tileText}><strong>{provider.name}</strong><span>{provider.domain}</span></span>
+                        {accounts.get(provider.id)?.status === 'connected'
+                          ? <span className={css.tileNote}>{text('已连接', 'Connected')}</span> : null}
+                      </button>)}
+                    {offered.map(row => <button key={row.entry.provider} type="button" className={css.addTile}
+                      onClick={() => { setDrawer({ kind: 'llm', provider: row.entry.provider }) }}>
+                      <span className={css.initial} aria-hidden="true">{(row.entry.displayName === row.entry.provider
+                        ? providerLabel(row.entry.provider) : row.entry.displayName).slice(0, 1)}</span>
+                      <span className={css.tileText}>
+                        <strong>{row.entry.displayName === row.entry.provider
+                          ? providerLabel(row.entry.provider) : row.entry.displayName}</strong>
+                        <span>{text('语言模型提供商', 'Language model provider')}</span>
+                      </span>
+                      {providerUsable(row) ? <span className={css.tileNote}>{text('已连接', 'Connected')}</span> : null}
+                    </button>)}
+                    {piAi === undefined || protocols.length === 0 ? null : <button type="button" className={css.addTile}
+                      onClick={() => { setDrawer({ kind: 'custom' }) }}>
+                      <span className={css.initial} aria-hidden="true"><IconLinkOutlineRegular size={14} /></span>
+                      <span className={css.tileText}>
+                        <strong>{text('自定义端点', 'Custom endpoint')}</strong>
+                        <span>{text('OpenAI 兼容的服务器', 'An OpenAI-compatible server')}</span>
+                      </span>
+                    </button>}
+                  </div>
+                </>}
+        </div>
       </div>
-    </div>, document.body) : null}
-    {active === undefined ? null : <ConnectionSheet provider={active.provider} state={active.state} connections={connections}
-      account={accounts.get(active.provider.id)} onClose={() => { setOpen(null) }} />}
+    </div>, document.body)}
+    {managing === null ? null : (() => {
+      const active = providers.find(({ provider }) => provider.id === managing)
+      if (active === undefined) return null
+      return <ConnectionSheet provider={active.provider} state={active.state} connections={connections}
+        account={accounts.get(active.provider.id)} onClose={() => { setManaging(null) }} />
+    })()}
   </section>
 }
 
-/** The side sheet that saves, replaces, and checks one provider's key. */
-function ConnectionSheet({ provider, state, account, connections, onClose }: {
+/**
+ * The key editor of one generation provider inside the add drawer.
+ * @param props - the provider registry, the shared account state, and the chosen provider.
+ * @returns the provider's key form.
+ */
+function GenerationEditor({ providers, connections, accounts, id, onBack }: {
+  providers: readonly ProviderSnapshot[]
+  connections: CloudConnections
+  accounts: ReadonlyMap<string, AccountState>
+  id: string
+  onBack: () => void
+}) {
+  const text = useText()
+  const active = providers.find(({ provider }) => provider.id === id)
+  if (active === undefined) return null
+  return <>
+    <button type="button" className={css.back} onClick={onBack}>
+      <IconChevronLeftOutlineRegular size={14} />{text('所有连接', 'All connections')}
+    </button>
+    <ProviderKeyForm provider={active.provider} state={active.state} connections={connections}
+      account={accounts.get(active.provider.id)} onClose={onBack} />
+  </>
+}
+
+/** The key form that saves, replaces, and checks one generation provider's key. */
+function ProviderKeyForm({ provider, state, account, connections, onClose }: {
   provider: CloudModelSettings
   state: CloudSelection
   account: AccountState | undefined
@@ -276,61 +429,66 @@ function ConnectionSheet({ provider, state, account, connections, onClose }: {
     operator: [text('现在可以在聊天中选择 OpenRouter LLM。', 'You can now pick OpenRouter LLMs in chat.'), false],
     operatorFailed: [text('无法启用聊天 LLM。请检查密钥。', 'Could not enable chat LLMs. Check the key.'), true],
   }[result]
+  return <form className={css.sheet} role="dialog" aria-modal="true" aria-labelledby={titleId}
+    onSubmit={(event) => { event.preventDefault(); void save() }}>
+    <header className={css.sheetHead}>
+      <ProviderMark provider={provider} size={28} />
+      <h2 id={titleId}>{saved ? provider.name : text(`连接 ${provider.name}`, `Connect ${provider.name}`)}</h2>
+      <button type="button" className={css.iconButton} aria-label={text('关闭', 'Close')} onClick={onClose}>
+        <IconCloseOutlineRegular size={14} />
+      </button>
+    </header>
+    <div className={css.sheetBody}>
+      <section className={css.sheetCard}>
+        <div className={css.keyState} data-tone={account?.status === 'connected' ? 'positive' : account?.status === 'rejected' ? 'negative' : 'muted'}>
+          <AccountLine account={account} />
+          {account?.status === 'connected' ? <span className={css.balance}>
+            {account.balanceUsd === null ? text('余额不可用', 'Balance unavailable') : text(`剩余 ${usd(account.balanceUsd)}`, `${usd(account.balanceUsd)} left`)}
+          </span> : null}
+        </div>
+        <label className={css.field} htmlFor={keyId}>
+          <span>{saved ? text('替换 API 密钥', 'Replace API key') : text('API 密钥', 'API key')}</span>
+        </label>
+        <Input autoFocus id={keyId} type="password" autoComplete="new-password" value={key} disabled={pending || !state.writable}
+          placeholder={saved ? text('已保存密钥 · 粘贴新密钥以替换', 'A key is saved · paste a new key to replace it')
+            : text('粘贴你的 API 密钥', 'Paste your API key')}
+          onChange={(event) => { setKey(event.target.value) }} />
+        <p className={css.hint}>
+          {text('密钥保存在 Harness 凭据存储中，不会写入配置文件。', 'The key goes to the harness credential store, never to a config file.')}{' '}
+          <a href={provider.keyUrl} target="_blank" rel="noreferrer">
+            {text(`从 ${provider.name} 获取密钥`, `Get a key from ${provider.name}`)}<IconLinkOutlineRegular size={12} />
+          </a>
+        </p>
+        {message === null ? null : <p className={message[1] ? css.error : css.success} role={message[1] ? 'alert' : 'status'}>{message[0]}</p>}
+      </section>
+      <section className={css.sheetCard}>
+        <h3>{text('模型', 'Models')}</h3>
+        {catalog?.status === 'ready' ? <ul className={css.counts}>
+          {counts.map(([media, count]) => <li key={media}>
+            <span>{mediaName(media)}</span><span className={css.numeric}>{count}</span>
+          </li>)}
+          <li><span>{text('在选择器中', 'In the picker')}</span><span className={css.numeric}>{state.enabled.length}</span></li>
+        </ul> : <p className={css.hint}>{catalog?.status === 'loading' ? text('正在加载模型…', 'Loading models…')
+          : text('保存密钥后即可浏览模型。', 'Save a key to browse its models.')}</p>}
+        {catalog?.status === 'ready' && catalog.warning !== undefined ? <p className={css.error} role="alert">{catalog.warning}</p> : null}
+        {provider.enableOperator === undefined ? null : <Button type="button" variant="outline" disabled={pending || !state.writable}
+          onClick={() => { void enableOperator() }}>{text('用于聊天 LLM', 'Use for chat LLMs')}</Button>}
+      </section>
+    </div>
+    <footer className={css.sheetFoot}>
+      <Button type="button" variant="outline" onClick={onClose}>{text('完成', 'Done')}</Button>
+      <Button type="submit" variant="primary" disabled={pending || !state.writable || (key.trim() === '' && !saved)}>
+        {pending ? text('检查中…', 'Checking…') : key.trim() === '' ? text('检查访问', 'Check access') : text('保存密钥', 'Save key')}
+      </Button>
+    </footer>
+  </form>
+}
+
+/** One generation provider's key form over the page, opened from its connection row. */
+function ConnectionSheet(props: Parameters<typeof ProviderKeyForm>[0]) {
   return createPortal(<div className={css.sheetRoot}>
-    <div className={css.sheetMask} aria-hidden="true" onClick={onClose} />
-    <form className={css.sheet} role="dialog" aria-modal="true" aria-labelledby={titleId}
-      onSubmit={(event) => { event.preventDefault(); void save() }}>
-      <header className={css.sheetHead}>
-        <ProviderMark provider={provider} size={28} />
-        <h2 id={titleId}>{saved ? provider.name : text(`连接 ${provider.name}`, `Connect ${provider.name}`)}</h2>
-        <button type="button" className={css.iconButton} aria-label={text('关闭', 'Close')} onClick={onClose}>
-          <IconCloseOutlineRegular size={14} />
-        </button>
-      </header>
-      <div className={css.sheetBody}>
-        <section className={css.sheetCard}>
-          <div className={css.keyState} data-tone={account?.status === 'connected' ? 'positive' : account?.status === 'rejected' ? 'negative' : 'muted'}>
-            <AccountLine account={account} />
-            {account?.status === 'connected' ? <span className={css.balance}>
-              {account.balanceUsd === null ? text('余额不可用', 'Balance unavailable') : text(`剩余 ${usd(account.balanceUsd)}`, `${usd(account.balanceUsd)} left`)}
-            </span> : null}
-          </div>
-          <label className={css.field} htmlFor={keyId}>
-            <span>{saved ? text('替换 API 密钥', 'Replace API key') : text('API 密钥', 'API key')}</span>
-          </label>
-          <Input autoFocus id={keyId} type="password" autoComplete="new-password" value={key} disabled={pending || !state.writable}
-            placeholder={saved ? text('已保存密钥 · 粘贴新密钥以替换', 'A key is saved · paste a new key to replace it')
-              : text('粘贴你的 API 密钥', 'Paste your API key')}
-            onChange={(event) => { setKey(event.target.value) }} />
-          <p className={css.hint}>
-            {text('密钥保存在 Harness 凭据存储中，不会写入配置文件。', 'The key goes to the harness credential store, never to a config file.')}{' '}
-            <a href={provider.keyUrl} target="_blank" rel="noreferrer">
-              {text(`从 ${provider.name} 获取密钥`, `Get a key from ${provider.name}`)}<IconLinkOutlineRegular size={12} />
-            </a>
-          </p>
-          {message === null ? null : <p className={message[1] ? css.error : css.success} role={message[1] ? 'alert' : 'status'}>{message[0]}</p>}
-        </section>
-        <section className={css.sheetCard}>
-          <h3>{text('模型', 'Models')}</h3>
-          {catalog?.status === 'ready' ? <ul className={css.counts}>
-            {counts.map(([media, count]) => <li key={media}>
-              <span>{mediaName(media)}</span><span className={css.numeric}>{count}</span>
-            </li>)}
-            <li><span>{text('在选择器中', 'In the picker')}</span><span className={css.numeric}>{state.enabled.length}</span></li>
-          </ul> : <p className={css.hint}>{catalog?.status === 'loading' ? text('正在加载模型…', 'Loading models…')
-            : text('保存密钥后即可浏览模型。', 'Save a key to browse its models.')}</p>}
-          {catalog?.status === 'ready' && catalog.warning !== undefined ? <p className={css.error} role="alert">{catalog.warning}</p> : null}
-          {provider.enableOperator === undefined ? null : <Button type="button" variant="outline" disabled={pending || !state.writable}
-            onClick={() => { void enableOperator() }}>{text('用于聊天 LLM', 'Use for chat LLMs')}</Button>}
-        </section>
-      </div>
-      <footer className={css.sheetFoot}>
-        <Button type="button" variant="outline" onClick={onClose}>{text('完成', 'Done')}</Button>
-        <Button type="submit" variant="primary" disabled={pending || !state.writable || (key.trim() === '' && !saved)}>
-          {pending ? text('检查中…', 'Checking…') : key.trim() === '' ? text('检查访问', 'Check access') : text('保存密钥', 'Save key')}
-        </Button>
-      </footer>
-    </form>
+    <div className={css.sheetMask} aria-hidden="true" onClick={props.onClose} />
+    <ProviderKeyForm {...props} />
   </div>, document.body)
 }
 

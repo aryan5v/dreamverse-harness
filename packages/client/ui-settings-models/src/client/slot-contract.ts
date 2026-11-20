@@ -17,8 +17,13 @@
  * the declaration. The types therefore live with their declarer.
  */
 
+import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
-import type { ProviderDirectoryEntry } from './store.ts'
+import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ModelsOperations } from './operations.ts'
+import type { SettingsSchemaOperations } from './schema-operations.ts'
+import type { ModelsSettingsState, ProviderDirectoryEntry, ProviderRow } from './store.ts'
+import type { en } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
@@ -37,7 +42,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * Ordered extension area after the page intro and before the provider rows.
      * Without a registrant the area renders nothing.
      */
-    'settings.models.header': { kind: 'list'; scope: 'root'; owner: ModelsFooterOwnerProps }
+    'settings.models.header': { kind: 'list'; scope: 'root'; owner: ModelsHeaderOwnerProps }
     /**
      * Ordered extension area after the provider rows and the add controls.
      * Without a registrant the area renders nothing.
@@ -56,8 +61,33 @@ export interface ProviderCardExtrasOwnerProps {
   keyConfigured: boolean
 }
 
-/** Owner share of the header and footer areas (the section supplies nothing). */
+/** Owner share of the footer area (the section supplies nothing). */
 export interface ModelsFooterOwnerProps {
-  /** Marker field: header and footer owner props are intentionally empty. */
+  /** Marker field: footer owner props are intentionally empty. */
   children?: never
+}
+
+/**
+ * Owner share of the header area: the page's provider join and the writes it
+ * offers. A registered header takes over the provider list, because it draws
+ * every provider row itself and the section's own rows and add controls stop
+ * rendering.
+ */
+export interface ModelsHeaderOwnerProps {
+  /** Every configurable or registered provider, with its credential state. */
+  rows: readonly ProviderRow[]
+  /** The settings namespaces the rows' editors write through, by namespace. */
+  namespaces: ReadonlyMap<string, SettingsNamespaceView>
+  /** Whether the settings documents accept writes. */
+  writable: boolean
+  /** The Host operations a provider editor writes and interrogates through. */
+  operations: ModelsOperations
+  /** Settings-owned schema and immutable path operations. */
+  schema: SettingsSchemaOperations
+  /** The join's load state, so an editor opened meanwhile can wait for it. */
+  status: ModelsSettingsState['status']
+  /** Section copy, over the dictionary the page uses. */
+  t: (key: keyof typeof en) => string
+  /** The registered header entries, so a page knows whether it draws the provider list. */
+  headerEntries: HostObservable<number>
 }
