@@ -22,8 +22,9 @@ async function modelPage(apiKey: string, apiBaseUrl: string, signal: AbortSignal
   url.searchParams.set('offset', String(offset))
   const response = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` }, signal, redirect: 'error' })
   if (!response.ok) throw new ReactorCatalogError(response.status)
-  const rows: unknown = await response.json()
-  if (!Array.isArray(rows)) throw new Error('Reactor returned an invalid model catalog.')
+  const raw: unknown = await response.json()
+  if (!Array.isArray(raw)) throw new Error('Reactor returned an invalid model catalog.')
+  const rows: unknown[] = raw
   return rows
 }
 

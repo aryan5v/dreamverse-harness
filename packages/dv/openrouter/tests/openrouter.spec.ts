@@ -218,7 +218,7 @@ it('reports OpenRouter key status and reads only account-wide credits', async ()
   const account = async () => {
     const response = await route.fetch(new Request('http://dsh.local/api/dv/openrouter/account'))
     expect(response.headers.get('cache-control')).toBe('no-store')
-    return response.json()
+    return response.json() as Promise<unknown>
   }
 
   expect(await account()).toEqual({ status: 'connected', balanceUsd: null, label: 'Fixture', limitRemainingUsd: 10 })
@@ -250,7 +250,7 @@ describe('OpenRouter account route', () => {
 
   it('reports the key limit apart from account credits, and null when the key has none', async () => {
     const { routes, remote } = await fixture({ models: {} })
-    const get = async () => (await route(routes).fetch(new Request(url))).json()
+    const get = async () => (await route(routes).fetch(new Request(url))).json() as Promise<unknown>
     remote.managementKey = true
     expect(await get()).toEqual({ status: 'connected', balanceUsd: 12.5, label: 'Fixture', limitRemainingUsd: 10 })
     remote.keyLimit = null

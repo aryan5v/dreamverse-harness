@@ -131,6 +131,7 @@ describe('OpenRouter image API', () => {
 
 describe('OpenRouter account lookup', () => {
   const keyBody = (data: unknown) => Response.json({ data })
+  const isKeyRequest = (input: Parameters<typeof fetch>[0]): boolean => (input instanceof Request ? input.url : input.toString()).endsWith('/key')
 
   it('stops a lookup after the configured deadline', async () => {
     const client = new OpenRouterApi('https://openrouter.ai/api/v1/', async () => 'fixture-key', 1, (_input, init) =>
@@ -145,7 +146,7 @@ describe('OpenRouter account lookup', () => {
 
   it('ignores a label that is not a string and non-finite credits', async () => {
     const client = new OpenRouterApi('https://openrouter.ai/api/v1/', async () => 'fixture-key', 1, async input =>
-      String(input).endsWith('/key') ? keyBody({ label: 5, is_management_key: true })
+      isKeyRequest(input) ? keyBody({ label: 5, is_management_key: true })
         : keyBody({ total_credits: 'many', total_usage: 1 }))
     expect(await client.account(new AbortController().signal)).toEqual({ balanceUsd: null, label: null, limitRemainingUsd: null })
   })
@@ -154,7 +155,7 @@ describe('OpenRouter account lookup', () => {
     const controller = new AbortController()
     const reason = new Error('Cancelled')
     const client = new OpenRouterApi('https://openrouter.ai/api/v1/', async () => 'fixture-key', 1, async (input) => {
-      if (String(input).endsWith('/key')) return keyBody({ is_management_key: true })
+      if (isKeyRequest(input)) return keyBody({ is_management_key: true })
       controller.abort(reason)
       throw reason
     })
