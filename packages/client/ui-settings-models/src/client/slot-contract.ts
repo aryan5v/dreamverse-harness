@@ -1,5 +1,5 @@
 /**
- * Models-page extension slots — the two seats through which a plugin
+ * Models-page extension slots — the seats through which a plugin
  * distributed outside this repository adds UI to the Models settings section
  * without editing it.
  *
@@ -34,6 +34,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     /** Optional account login choice before the credential editor. */
     'settings.models.sign-in': { kind: 'single'; scope: 'root'; owner: { complete: () => void; useApiKey: () => void } }
     /**
+     * Ordered extension area after the page intro and before the provider rows.
+     * Without a registrant the area renders nothing.
+     */
+    'settings.models.header': { kind: 'list'; scope: 'root'; owner: ModelsFooterOwnerProps }
+    /**
      * Ordered extension area after the provider rows and the add controls.
      * Without a registrant the area renders nothing.
      */
@@ -51,8 +56,8 @@ export interface ProviderCardExtrasOwnerProps {
   keyConfigured: boolean
 }
 
-/** Owner share of the footer area (the section supplies nothing). */
+/** Owner share of the header and footer areas (the section supplies nothing). */
 export interface ModelsFooterOwnerProps {
-  /** Marker field: footer owner props are intentionally empty. */
+  /** Marker field: header and footer owner props are intentionally empty. */
   children?: never
 }

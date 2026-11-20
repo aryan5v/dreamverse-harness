@@ -1,0 +1,236 @@
+/**
+ * A composer popover that lists models grouped by provider, with a filter rail, search, and a detail card on hover. The
+ * detail card sits beside the list when the window has room on either side and above or below it otherwise.
+ */
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconSearchOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import css from './picker.module.css'
+
+/** One provider group of the list and the rail. */
+export interface PickerGroup {
+  id: string
+  name: string
+  icon: ReactNode
+}
+
+/** One rail button that narrows the list to the rows carrying its id in `PickerItem.filter`. */
+export interface PickerFilter {
+  id: string
+  name: string
+  icon: ReactNode
+}
+
+/** One selectable row. */
+export interface PickerItem {
+  id: string
+  group: string
+  /** The {@link PickerFilter} id this row belongs to, when the popover has filters. */
+  filter?: string
+  label: string
+  /** Short text at the row's end, such as the media type. */
+  tag?: string
+  selected: boolean
+  /** Rows of the detail card, label then value. */
+  facts: readonly (readonly [string, string])[]
+  /** Extra controls at the bottom of the detail card, such as reasoning effort. */
+  extra?: ReactNode
+}
+
+/** Props of {@link PickerPopover}. */
+export interface PickerPopoverProps {
+  /** Accessible name of the trigger and the dialog. */
+  label: string
+  /** Short kind shown before the value in the trigger, such as `Generate`. */
+  kind?: string
+  /** The trigger's value text. */
+  value: string
+  valueIcon?: ReactNode
+  disabled?: boolean
+  searchLabel: string
+  emptyLabel: string
+  /** Rows above the groups, such as Auto. */
+  leading?: readonly PickerItem[]
+  groups: readonly PickerGroup[]
+  /** Rail buttons; without them the rail lists the groups while there are two or more. */
+  filters?: readonly PickerFilter[]
+  items: readonly PickerItem[]
+  /** Text shown below the list, such as where to configure more models. */
+  footer?: ReactNode
+  onOpen?: () => void
+  /**
+   * Choose a row.
+   * @param id - the row's id.
+   * @returns whether the popover closes.
+   */
+  onSelect: (id: string) => boolean
+}
+
+const LIST_WIDTH = 300
+const RAIL_WIDTH = 45
+const DETAIL_WIDTH = 260
+const GAP = 8
+const EDGE = 8
+
+/** Where the detail card sits relative to the list. */
+type DetailSide = 'right' | 'left' | 'stack'
+
+/**
+ * Draw the trigger and, while open, the rail, the grouped list, and the detail card of the row under the pointer.
+ * @param props - the rows, their groups, and the selection callback.
+ * @returns the trigger and the portal popover.
+ */
+export function PickerPopover(props: PickerPopoverProps) {
+  const { label, kind, value, valueIcon, disabled, searchLabel, emptyLabel, leading = [], groups, filters, items, footer, onOpen,
+    onSelect } = props
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<string | null>(null)
+  const [focus, setFocus] = useState<string | null>(null)
+  const [position, setPosition] = useState<{ style: CSSProperties; side: DetailSide; list: number; height: number } | null>(null)
+  const rail: readonly PickerFilter[] = filters ?? (groups.length < 2 ? [] : groups)
+  const trigger = useRef<HTMLButtonElement | null>(null)
+  const panel = useRef<HTMLDivElement | null>(null)
+  const listId = useId()
+
+  useLayoutEffect(() => {
+    if (!open || trigger.current === null) return
+    const place = (event?: Event) => {
+      if (event?.target instanceof Node && panel.current?.contains(event.target)) return
+      const rect = trigger.current?.getBoundingClientRect()
+      if (rect === undefined) return
+      const railWidth = rail.length === 0 ? 0 : RAIL_WIDTH
+      const list = Math.min(LIST_WIDTH, window.innerWidth - 2 * EDGE - railWidth)
+      const main = list + railWidth
+      const left = Math.max(EDGE, Math.min(rect.left, window.innerWidth - EDGE - main))
+      const side: DetailSide = left + main + GAP + DETAIL_WIDTH <= window.innerWidth - EDGE ? 'right'
+        : left - GAP - DETAIL_WIDTH >= EDGE ? 'left' : 'stack'
+      const above = rect.top > window.innerHeight - rect.bottom
+      const anchor = Math.max(EDGE, above ? window.innerHeight - rect.top + GAP : rect.bottom + GAP)
+      const height = window.innerHeight - anchor - EDGE
+      const vertical = above ? { bottom: anchor } : { top: anchor }
+      setPosition({ side, list, height, style: { ...vertical, left, maxHeight: height,
+        ...(side === 'stack' ? { flexDirection: above ? 'column-reverse' : 'column' } : {}) } })
+    }
+    place()
+    window.addEventListener('resize', place)
+    document.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      document.removeEventListener('scroll', place, true)
+    }
+  }, [open, rail.length])
+
+  useEffect(() => {
+    if (!open) return
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (panel.current?.contains(target) === true || trigger.current?.contains(target) === true) return
+      setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setOpen(false)
+      trigger.current?.focus()
+    }
+    document.addEventListener('pointerdown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const needle = query.trim().toLowerCase()
+  const visible = useMemo(() => items.filter(item => (filter === null || (filters === undefined ? item.group : item.filter) === filter)
+    && `${item.label} ${item.tag ?? ''}`.toLowerCase().includes(needle)), [items, filters, filter, needle])
+  const shownGroups = groups.filter(entry => visible.some(item => item.group === entry.id))
+  const shownLeading = needle === '' && filter === null ? leading : []
+  const detail = [...shownLeading, ...visible]
+    .find(item => item.id === focus || (focus === null && item.selected && item.extra !== undefined))
+
+  const choose = (id: string): void => {
+    if (!onSelect(id)) return
+    setOpen(false)
+    trigger.current?.focus()
+  }
+  const row = (item: PickerItem) => <li key={item.id} role="none">
+    <button type="button" role="option" aria-selected={item.selected} className={css.row}
+      onMouseEnter={() => { setFocus(item.id) }} onFocus={() => { setFocus(item.id) }} onClick={() => { choose(item.id) }}>
+      <span className={css.rowIcon}>{groups.find(entry => entry.id === item.group)?.icon}</span>
+      <span className={css.rowLabel}>{item.label}</span>
+      {item.tag === undefined ? null : <span className={css.tag}>{item.tag}</span>}
+      {item.selected ? <IconCheckOutlineRegular size={14} className={css.check} /> : null}
+    </button>
+  </li>
+
+  return <>
+    <button ref={trigger} type="button" className={css.trigger} aria-haspopup="dialog" aria-expanded={open}
+      aria-label={`${label}: ${value}`} disabled={disabled}
+      onClick={() => {
+        if (!open) { onOpen?.(); setQuery(''); setFilter(null); setFocus(null) }
+        setOpen(current => !current)
+      }}>
+      {kind === undefined ? null : <span className={css.triggerKind}>{kind}</span>}
+      {valueIcon === undefined ? null : <span className={css.triggerIcon}>{valueIcon}</span>}
+      <span className={css.triggerValue}>{value}</span>
+      <IconChevronDownOutlineRegular size={12} />
+    </button>
+    {!open || position === null ? null : createPortal(<div ref={panel} className={css.popover} style={position.style}
+      data-side={position.side} role="dialog" aria-label={label}>
+      <div className={css.main} style={{
+        maxHeight: Math.min(440, position.side === 'stack' && detail !== undefined ? position.height * 0.6 - GAP : position.height),
+      }}>
+        {rail.length === 0 ? null : <nav className={css.rail} aria-label={label}>
+          {rail.map((entry) => {
+            const empty = filters !== undefined && !items.some(item => item.filter === entry.id)
+            return <button key={entry.id} type="button" className={css.railButton} title={entry.name}
+              aria-label={entry.name} aria-pressed={filter === entry.id} disabled={empty}
+              onClick={() => { setFilter(filter === entry.id ? null : entry.id); setFocus(null) }}>{entry.icon}</button>
+          })}
+        </nav>}
+        <div className={css.listPane} style={{ width: position.list }}>
+          <label className={css.search}>
+            <IconSearchOutlineRegular size={14} />
+            <input autoFocus type="search" placeholder={searchLabel} aria-label={searchLabel} aria-controls={listId}
+              value={query} onChange={(event) => { setQuery(event.target.value); setFocus(null) }} />
+          </label>
+          <ul id={listId} className={css.list} role="listbox" aria-label={label}>
+            {shownLeading.map(row)}
+            {shownGroups.map(entry => <li key={entry.id} role="none" className={css.groupBlock}>
+              <span className={css.groupHeading}><span className={css.groupIcon}>{entry.icon}</span>{entry.name}</span>
+              <ul role="group" aria-label={entry.name} className={css.groupList}>
+                {visible.filter(item => item.group === entry.id).map(row)}
+              </ul>
+            </li>)}
+            {visible.length > 0 || shownLeading.length > 0 ? null
+              : <li role="none" className={css.empty}>{emptyLabel}</li>}
+          </ul>
+          {footer === undefined ? null : <div className={css.footer}>{footer}</div>}
+        </div>
+      </div>
+      {detail === undefined ? null : <aside className={css.detail}
+        style={{ width: position.side === 'stack' ? undefined : DETAIL_WIDTH,
+          maxHeight: position.side === 'stack' ? position.height * 0.4 : position.height }}
+        aria-live="polite">
+        <header className={css.detailHead}>
+          <span className={css.rowIcon}>{groups.find(entry => entry.id === detail.group)?.icon}</span>
+          <strong>{detail.label}</strong>
+        </header>
+        {detail.facts.length === 0 ? null : <dl className={css.facts}>
+          {detail.facts.map(([name, fact]) => <div key={name}><dt>{name}</dt><dd>{fact}</dd></div>)}
+        </dl>}
+        {detail.extra}
+      </aside>}
+    </div>, document.body)}
+  </>
+}
+
+/**
+ * A provider mark: the given logo, or the provider name's first letter.
+ * @param props - the logo component or the name.
+ * @returns the mark.
+ */
+export function ProviderGlyph({ logo: Logo, name }: { logo?: (props: { size: number }) => ReactNode; name: string }) {
+  return <span className={css.glyph} aria-hidden="true">{Logo === undefined ? name.slice(0, 1).toUpperCase() : <Logo size={12} />}</span>
+}

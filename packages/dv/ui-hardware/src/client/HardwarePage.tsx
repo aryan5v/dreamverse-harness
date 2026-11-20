@@ -1,7 +1,9 @@
 /** Connection editor backed by revision-fenced Harness settings and its credential store. */
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
-import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  Button, IconChevronRightOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, Input, Switch,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { RunPodView, WorkerConfig, WorkerView } from '@dv/hardware/types'
 import { errorMessage } from '@dv/ui-kit/api.ts'
@@ -25,6 +27,13 @@ const blank: WorkerConfig = { label: '', provider: 'fastvideo', enabled: true, t
 /** Whether an API worker URL names a loopback server, which the editor presents as a local placement. */
 const isLoopback = (baseUrl: string): boolean => /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(baseUrl)
 
+/** A GPU box drawn in the current text color. */
+function DeviceGlyph() {
+  return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round">
+    <rect x="2" y="3" width="12" height="8" rx="1.5" /><path d="M5.5 13.5h5M8 11v2.5" /><path d="M5 6h2M5 8h4" strokeLinecap="round" />
+  </svg>
+}
+
 /** Save worker coordinates without exposing saved keys or accepting private keys. */
 export function HardwarePage({ form, routing, check, storeCredential, removeCredential, runpodPods, models }: HardwareProps) {
   const t = useCopy()
@@ -33,6 +42,7 @@ export function HardwarePage({ form, routing, check, storeCredential, removeCred
   const routingState = useSyncExternalStore(
     useCallback(listener => routing.subscribe(listener), [routing]), useCallback(() => routing.getSnapshot(), [routing]))
   const [showModels, setShowModels] = useState(false)
+  const [expanded, setExpanded] = useState<string | null>(null)
   const [views, setViews] = useState<WorkerView[]>([])
   const [editor, setEditor] = useState<{
     id: string
@@ -118,64 +128,88 @@ export function HardwarePage({ form, routing, check, storeCredential, removeCred
       setNotice(t.removed); setRemoving(null); setViews(previous => previous.filter(view => view.id !== id))
     } catch (error) { setFailure(errorMessage(error)) } finally { setPending(false) }
   }
-  const enabled = Object.values(workers).filter(worker => worker.enabled).length
-  const totals = [
-    [t.enabledCount, enabled],
-    [t.readyCount, views.filter(view => view.enabled && view.status === 'ready').length],
-    [t.activeCount, views.filter(view => view.enabled && (view.busy || view.loadingModel !== null)).length],
-  ] as const
+  const ready = views.filter(view => view.enabled && view.status === 'ready').length
+  const ids = Object.keys(workers)
   return <section className={css.page}>
-    <header className={css.header}><div><h2>{t.hardware}</h2><p>{t.hardwareIntro}</p></div>
-      {editor !== null ? null : <Button variant="primary" disabled={!writable || pending} onClick={() => { edit(null) }}>{t.add}</Button>}
-    </header>
+    <header className={css.header}><div><h2>{t.hardware}</h2><p>{t.hardwareIntro}</p></div></header>
     <p role="status" className={css.notice}>{notice}</p>
     {failure === null ? null : <div role="alert" className={css.alert}><p>{failure}</p>
       {editor !== null ? null : <Button size="sm" disabled={checking} onClick={() => { void refresh() }}>{t.retry}</Button>}</div>}
     {!writable ? <p>{t.unavailable}</p> : null}
     {editor === null ? <>
-      <dl className={css.stats} aria-label={t.statusSummary}>
-        {totals.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
-      </dl>
-      <div className={css.sectionHeading}><div><h3>{t.connected}</h3><p>{t.slots}</p></div>
-        <Button variant="outline" disabled={checking || pending} onClick={() => { void refresh() }}>{checking ? t.checking : t.check}</Button></div>
-      {Object.keys(workers).length === 0 ? <div className={css.empty}><h3>{t.empty}</h3><p>{t.deviceHelp}</p></div> : null}
-      <ul className={css.list}>{Object.entries(workers).map(([id, worker]) => {
-        const view = views.find(value => value.id === id)
-        const status = !worker.enabled ? 'disabled' : view?.status ?? 'unchecked'
-        const held = view?.busy === true || view?.loadingModel != null
-        return <li key={id} className={css.device}>
-          <div className={css.row}><div className={css.identity}><strong>{worker.label}</strong>
-            <span className={css.meta}>{worker.transport === 'ssh' ? t.ssh : worker.baseUrl.endsWith('.proxy.runpod.net') ? t.runpod : isLoopback(worker.baseUrl) ? t.local : t.api}</span></div>
-          <span className={css.badge} data-status={status}>{t[status]}</span></div>
-          <p>{view?.loadingModel != null ? `${t.loading}: ${view.loadingModel}` : `${t.resident}: ${view?.loadedModel ?? t.none}`}</p>
-          <details className={css.details}><summary>{t.connectionDetails}</summary>
-            <p className={css.coordinate}>{worker.transport === 'ssh' ? `${worker.sshHost} → ${worker.remoteHost}:${worker.remotePort}` : worker.baseUrl}</p>
-            <p className={css.coordinate}>{t.id}: {id}</p></details>
-          <div className={css.actions}><Button variant="outline" disabled={!writable || pending} onClick={() => { edit(id) }}>{t.edit}</Button>
-            <Button className={css.danger} disabled={!writable || pending || checking || held}
-              onClick={() => { setRemoving(id) }}>{t.remove}</Button></div>
-          {removing !== id ? null : <div className={css.confirm} role="group" aria-label={t.removeTitle}>
-            <strong>{t.removeTitle}</strong><p>{t.removeHelp}</p><div className={css.actions}>
-              <Button autoFocus disabled={pending} onClick={() => { setRemoving(null) }}>{t.cancel}</Button>
-              <Button className={css.danger} variant="outline" disabled={pending || held} onClick={() => { void remove(id) }}>{t.confirmRemove}</Button>
-            </div></div>}
-        </li>
-      })}</ul>
-      {routingState.status !== 'ready' ? null : <section className={css.policy}>
-        <h3>{t.execution}</h3><p>{t.independentHelp}</p>
-        <label className={css.toggle}><input type="checkbox" checked={routingState.value?.useHardware ?? false}
-          disabled={!routingState.writable || pending} onChange={(event) => {
-            setFailure(null); void routing.set('useHardware', event.target.checked).then((ok) => {
-              if (!ok) setFailure(t.conflict)
-            }, (error: unknown) => { setFailure(errorMessage(error)) })
-          }} />{t.mode}</label><p>{t.modeHelp}</p>
-        <details className={css.details}><summary>{t.distributed}</summary><p>{t.distributedHelp}</p></details>
+      <section className={css.group} aria-label={t.connected}>
+        <div className={css.groupHeading}><h3>{t.connected}</h3><p>{t.slots}</p></div>
+        <div className={css.card}>
+          <div className={css.cardHead}>
+            <span>{t.deviceCount.replace('{count}', String(ids.length))}{ids.length === 0 ? '' : ` · ${t.readyCount.toLowerCase()} ${ready}`}</span>
+            <span className={css.headActions}>
+              <button type="button" className={css.iconButton} aria-label={checking ? t.checking : t.check} title={t.check}
+                disabled={checking || pending} onClick={() => { void refresh() }}><IconRefreshOutlineRegular size={14} /></button>
+              {ids.length === 0 ? null : <button type="button" className={css.iconButton} aria-label={t.add} title={t.add}
+                disabled={!writable || pending} onClick={() => { edit(null) }}><IconPlusOutlineRegular size={14} /></button>}
+            </span>
+          </div>
+          {ids.length === 0 ? <div className={css.emptyRow}><strong>{t.empty}</strong><p>{t.deviceHelp}</p>
+            <Button variant="primary" disabled={!writable || pending} onClick={() => { edit(null) }}>{t.add}</Button></div> : null}
+          <ul className={css.list}>{Object.entries(workers).map(([id, worker]) => {
+            const view = views.find(value => value.id === id)
+            const status = !worker.enabled ? 'disabled' : view?.status ?? 'unchecked'
+            const held = view?.busy === true || view?.loadingModel != null
+            const placement = worker.transport === 'ssh' ? t.ssh : worker.baseUrl.endsWith('.proxy.runpod.net') ? t.runpod : isLoopback(worker.baseUrl) ? t.local : t.api
+            const open = expanded === id
+            return <li key={id} className={css.device}>
+              <button type="button" className={css.deviceRow} aria-expanded={open} onClick={() => { setExpanded(open ? null : id) }}>
+                <span className={css.deviceMark} aria-hidden="true"><DeviceGlyph /></span>
+                <span className={css.identity}><strong>{worker.label}</strong>
+                  <span className={css.meta}><span className={css.dot} data-status={status} />{t[status]}, {placement}</span></span>
+                <span className={css.resident}>{view?.loadingModel != null ? `${t.loading}: ${view.loadingModel}` : view?.loadedModel ?? ''}</span>
+                <IconChevronRightOutlineRegular size={14} className={css.chevron} data-open={open} />
+              </button>
+              {!open ? null : <div className={css.deviceDetails}>
+                <dl className={css.facts}>
+                  <div><dt>{t.resident}</dt><dd>{view?.loadingModel != null ? `${t.loading}: ${view.loadingModel}` : view?.loadedModel ?? t.none}</dd></div>
+                  <div><dt>{t.transport}</dt><dd className={css.coordinate}>{worker.transport === 'ssh' ? `${worker.sshHost} → ${worker.remoteHost}:${worker.remotePort}` : worker.baseUrl}</dd></div>
+                  <div><dt>{t.id}</dt><dd className={css.coordinate}>{id}</dd></div>
+                </dl>
+                <div className={css.actions}><Button variant="outline" disabled={!writable || pending} onClick={() => { edit(id) }}>{t.edit}</Button>
+                  <Button className={css.danger} disabled={!writable || pending || checking || held}
+                    onClick={() => { setRemoving(id) }}>{t.remove}</Button></div>
+                {removing !== id ? null : <div className={css.confirm} role="group" aria-label={t.removeTitle}>
+                  <strong>{t.removeTitle}</strong><p>{t.removeHelp}</p><div className={css.actions}>
+                    <Button autoFocus disabled={pending} onClick={() => { setRemoving(null) }}>{t.cancel}</Button>
+                    <Button className={css.danger} variant="outline" disabled={pending || held} onClick={() => { void remove(id) }}>{t.confirmRemove}</Button>
+                  </div></div>}
+              </div>}
+            </li>
+          })}</ul>
+        </div>
+      </section>
+      {routingState.status !== 'ready' ? null : <section className={css.group} aria-label={t.execution}>
+        <div className={css.groupHeading}><h3>{t.execution}</h3><p>{t.independentHelp}</p></div>
+        <div className={css.card}>
+          <div className={css.settingRow}>
+            <span className={css.settingText}><strong>{t.mode}</strong><span>{t.modeHelp}</span></span>
+            <Switch checked={routingState.value?.useHardware ?? false} label={t.mode}
+              disabled={!routingState.writable || pending} onChange={(next) => {
+                setFailure(null); void routing.set('useHardware', next).then((ok) => {
+                  if (!ok) setFailure(t.conflict)
+                }, (error: unknown) => { setFailure(errorMessage(error)) })
+              }} />
+          </div>
+          <div className={css.settingRow}>
+            <span className={css.settingText}><strong>{t.distributed}</strong><span>{t.distributedHelp}</span></span>
+            <Switch checked={false} disabled label={t.distributed} onChange={() => {}} />
+          </div>
+        </div>
       </section>}
-      {models === undefined ? null : <details open={showModels} className={css.details}
-        onToggle={(event) => { setShowModels(event.currentTarget.open) }}>
-        <summary>{t.models}</summary>
-        {showModels ? <ModelsPage {...models} /> : null}
-      </details>}
+      {models === undefined ? null : <section className={css.group} aria-label={t.models}>
+        <div className={css.groupHeading}><h3>{t.models}</h3><p>{t.modelsIntro}</p></div>
+        <details open={showModels} className={css.card}
+          onToggle={(event) => { setShowModels(event.currentTarget.open) }}>
+          <summary className={css.cardSummary}>{showModels ? t.hideModels : t.showModels}</summary>
+          {showModels ? <div className={css.cardBody}><ModelsPage {...models} /></div> : null}
+        </details>
+      </section>}
     </> : <form className={css.editor} aria-label={editor.original === null ? t.add : t.edit}
       onSubmit={(event) => { event.preventDefault(); void save() }}>
       <div><h3>{editor.original === null ? t.add : t.edit}</h3><p>{t.deviceHelp}</p></div>

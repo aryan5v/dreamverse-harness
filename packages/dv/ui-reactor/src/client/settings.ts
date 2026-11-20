@@ -1,12 +1,14 @@
 /** Adapt Reactor's deployment aliases and account catalog to the DreamVerse models table. */
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ReactorCatalog, ReactorCatalogModel, ReactorModelConfig, ReactorSettings } from '@dv/reactor/types'
-import { cloudSelection, type CloudCatalogResult, type CloudModelSettings } from '@dv/ui-kit/cloud-model-settings.ts'
+import { cloudSelection, type CloudAccount, type CloudCatalogResult, type CloudModelSettings } from '@dv/ui-kit/cloud-model-settings.ts'
+import { ReactorLogo } from './logo.tsx'
 
 interface Options {
   form: ConfigForm<ReactorSettings>
   storeKey(ref: string, key: string): Promise<void>
   discover(signal: AbortSignal): Promise<ReactorCatalog | Extract<CloudCatalogResult, { credentialError: string }>>
+  account(signal: AbortSignal): Promise<CloudAccount>
 }
 
 const deployment = (entry: ReactorModelConfig): string => entry.modelId ?? `reactor/${entry.profile}`
@@ -16,10 +18,11 @@ const deployment = (entry: ReactorModelConfig): string => entry.modelId ?? `reac
  * @param options - the host configuration, key storage, and authenticated model catalog.
  * @returns the Reactor contribution.
  */
-export function reactorSettings({ form, storeKey, discover }: Options): CloudModelSettings {
+export function reactorSettings({ form, storeKey, discover, account }: Options): CloudModelSettings {
   let offers = new Map<string, ReactorCatalogModel>()
   return {
-    id: 'reactor', name: 'Reactor', media: ['video'],
+    id: 'reactor', name: 'Reactor', domain: 'reactor.inc', keyUrl: 'https://www.reactor.inc/dashboard',
+    logo: ReactorLogo, media: ['video'], account,
     settings: cloudSelection(form, state => ({
       writable: state.status === 'ready' && state.writable && state.value !== undefined,
       enabled: [...new Set(Object.values(state.value?.models ?? {}).map(deployment))]

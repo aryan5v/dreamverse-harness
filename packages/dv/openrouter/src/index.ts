@@ -419,6 +419,21 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       } catch { return Response.json({ error: 'Could not load OpenRouter models. Check the saved API key and connection.' }, { status: 502 }) }
     },
   }), 'OpenRouter model discovery'))
+  ctx.inject(['connection'], scope => scope.effect(() => scope.connection.fetch.register({
+    path: '/api/dv/openrouter/account', methods: ['GET'], requestBody: 'buffered',
+    fetch: async (request) => {
+      const ref = config.credentialRef.get()
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(ref) || await ctx.credentials.resolve(credentialRef(ref)) === undefined) {
+        return Response.json({ status: 'missing' })
+      }
+      try {
+        return Response.json({ status: 'connected', ...await client.account(request.signal) })
+      } catch (error) {
+        const rejected = error instanceof Error && /HTTP 40[13]\b/.test(error.message)
+        return Response.json({ status: rejected ? 'rejected' : 'unavailable' })
+      }
+    },
+  }), 'OpenRouter account balance'))
   // A configured alias is checked without the network, so a bad alias in cordis.yml fails the load.
   for (const models of [config.models, config.imageModels, config.audioModels]) {
     for (const alias of Object.keys(models.get())) checkAlias(alias)

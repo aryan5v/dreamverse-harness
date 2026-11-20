@@ -76,6 +76,27 @@ export class OpenRouterApi {
     return videoCatalog(models, references)
   }
 
+  /**
+   * Read the remaining balance and the key's label. The account balance from `credits` is preferred; a key that may not
+   * read it falls back to the key's own remaining spending limit from `key`.
+   * @param signal - aborts both requests.
+   * @returns the balance in US dollars, null when neither answer carries one, and the key's label.
+   * @throws Error naming HTTP 401 when OpenRouter rejects the key.
+   */
+  async account(signal?: AbortSignal): Promise<{ balanceUsd: number | null; label: string | null }> {
+    const key = await this.catalogJson('key', signal) as { data?: { label?: unknown; limit_remaining?: unknown } }
+    const label = typeof key.data?.label === 'string' ? key.data.label : null
+    const credits = await this.catalogJson('credits', signal).catch((error: unknown) => {
+      if (signal?.aborted === true) throw error
+      return null
+    }) as { data?: { total_credits?: unknown; total_usage?: unknown } } | null
+    const total = credits?.data?.total_credits
+    const used = credits?.data?.total_usage
+    if (typeof total === 'number' && typeof used === 'number') return { balanceUsd: total - used, label }
+    const remaining = key.data?.limit_remaining
+    return { balanceUsd: typeof remaining === 'number' ? remaining : null, label }
+  }
+
   /** Read current image choices. */
   async imageCatalog(signal?: AbortSignal): Promise<ImageModel[]> {
     return imageCatalog(await this.catalogJson('images/models', signal))

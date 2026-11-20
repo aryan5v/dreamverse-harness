@@ -98,20 +98,30 @@ describe('conversation model choices', () => {
     expect(prompt.getByTestId('catalog').textContent).toBe('1 models')
   })
 
-  it('shows an image picker only while an image model is configured, and saves each modality on its own', async () => {
+  it('lists every reachable media model in one picker and saves the chosen model for its own media type', async () => {
     const project = fixtureState()
     project.components['models'] = { conversations: { s1: { video: { provider: 'fastvideo', model: 'pika' } } } }
     const state = createSnapshotStore(project)
-    const catalog = createSnapshotStore<readonly WireModelEntry[] | null>([model('pika')])
+    const unreachable = { ...image('seedream'), schema: null }
+    const catalog = createSnapshotStore<readonly WireModelEntry[] | null>([model('pika'), image('flux'), unreachable])
     const save = vi.fn(async () => {})
     const view = render(<ModelPickers sessionId="s1" state={state} models={catalog} reloadModels={() => {}} save={save} />)
-    expect(view.queryByRole('button', { name: /^Image model/ })).toBeNull()
-    act(() => { catalog.set([model('pika'), image('flux'), image('seedream')]) })
-    expect(view.getByRole('button', { name: 'Video model: Pika H3 Flex' })).toBeTruthy()
-    fireEvent.click(view.getByRole('button', { name: 'Image model: Auto' }))
-    fireEvent.click(within(within(document.body).getByRole('menu')).getByText('FLUX 3'))
+    fireEvent.click(view.getByRole('button', { name: 'Generation model: Pika H3 Flex' }))
+    const list = within(document.body).getByRole('listbox', { name: 'Generation model' })
+    expect(within(list).getByRole('option', { name: /Pika H3 Flex/, selected: true })).toBeTruthy()
+    expect(within(list).queryByText('Seedream 5')).toBeNull()
+    const dialog = view.getByRole('dialog', { name: 'Generation model' })
+    expect(within(dialog).getByRole('button', { name: 'Audio' }).hasAttribute('disabled')).toBe(true)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Image', pressed: false }))
+    expect(within(dialog).getByRole('button', { name: 'Image', pressed: true })).toBeTruthy()
+    expect(within(list).queryByRole('option', { name: /Pika H3 Flex/ })).toBeNull()
+    fireEvent.click(within(list).getByRole('option', { name: /FLUX 3/ }))
     await act(async () => {})
     expect(save).toHaveBeenCalledWith('image', { provider: 'openrouter', model: 'flux' })
+    fireEvent.click(view.getByRole('button', { name: 'Generation model: Pika H3 Flex' }))
+    fireEvent.click(within(within(document.body).getByRole('listbox', { name: 'Generation model' })).getByRole('option', { name: /Pika H3 Flex/ }))
+    await act(async () => {})
+    expect(save).toHaveBeenLastCalledWith('video', null)
   })
 
   it('keeps its catalog subscriptions across re-renders, so a re-render loads no catalog', async () => {

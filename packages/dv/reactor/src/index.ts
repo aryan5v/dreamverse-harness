@@ -11,7 +11,7 @@ import type {} from '@dv/asset-pool'
 import type {} from '@dv/ffmpeg'
 import type { ModelEntry, RenderModelFacts, RenderRequest, RenderStreamEvent } from '@dv/models'
 import { citedAsset, citedInput, replacePromptCitations, type AssetId } from '@dv/project'
-import { listModels, ReactorCatalogError } from './catalog.ts'
+import { listModels, ReactorCatalogError, readAccount } from './catalog.ts'
 import { capture, type Upload } from './client.ts'
 import type { ReactorModelConfig } from './types.ts'
 import { profileFor, profiles, type ProfileName } from './profiles.ts'
@@ -118,6 +118,20 @@ export function apply(ctx: Context, config: Config): void {
       }
     },
   }), 'Reactor model discovery'))
+  ctx.inject(['connection'], scope => scope.effect(() => scope.connection.fetch.register({
+    path: '/api/dv/reactor/account', methods: ['GET'], requestBody: 'buffered',
+    fetch: async (request) => {
+      const credential = await scope.credentials.resolve(keyRef)
+      if (credential === undefined) return Response.json({ status: 'missing' })
+      const signal = AbortSignal.any([request.signal, AbortSignal.timeout(config.timeoutSeconds * 1000)])
+      try {
+        return Response.json({ status: 'connected', ...await readAccount(credential.value, signal) })
+      } catch (error) {
+        const rejected = error instanceof ReactorCatalogError && (error.status === 401 || error.status === 403)
+        return Response.json({ status: rejected ? 'rejected' : 'unavailable' })
+      }
+    },
+  }), 'Reactor account balance'))
   const lifetime = new AbortController()
   const active = new Set<ReturnType<typeof capture>>()
   ctx.effect(() => async () => {

@@ -34,6 +34,7 @@ it('saves an SSH alias with revision fencing, keeping a blank API key unchanged'
     runpodPods={async () => []} form={config} routing={form({ useHardware: false })} check={async () => [state]}
     storeCredential={storeCredential} />)
   await act(async () => {})
+  fireEvent.click(screen.getByRole('button', { name: /Workstation/ }))
   fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
   fireEvent.change(screen.getByLabelText('Connection'), { target: { value: 'ssh' } })
   fireEvent.change(screen.getByLabelText('SSH host alias'), { target: { value: 'gpu-box' } })
@@ -52,7 +53,7 @@ it('stores a new API key only in the existing credential service and persists it
     runpodPods={async () => []} form={config} routing={form({ useHardware: false })} check={async () => []}
     storeCredential={storeCredential} />)
   await act(async () => {})
-  fireEvent.click(screen.getByRole('button', { name: 'Add hardware' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add device' }))
   fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Cloud GPU' } })
   fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'fixture-token' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save and check' }))
@@ -69,6 +70,7 @@ it('keeps a refused edit visible and prevents removing a busy worker', async () 
     runpodPods={async () => []} form={config} routing={form({ useHardware: true })} check={async () => [{ ...state, busy: true, status: 'busy' }]}
     storeCredential={async () => {}} />)
   await act(async () => {})
+  fireEvent.click(screen.getByRole('button', { name: /Workstation/ }))
   expect(screen.getByRole('button', { name: 'Remove' }).hasAttribute('disabled')).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
   fireEvent.click(screen.getByRole('button', { name: 'Save and check' }))
@@ -100,7 +102,7 @@ it('keeps connection checks recoverable and distinguishes local and hosted endpo
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
   await act(async () => {})
   expect(screen.queryByRole('alert')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Add hardware' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add device' }))
   expect(screen.getByText('The GPU and FastVideo server run on the machine hosting this harness.')).toBeTruthy()
   fireEvent.change(screen.getByLabelText('Connection'), { target: { value: 'api' } })
   expect(screen.getByText(/compatible Modal or RunPod/)).toBeTruthy()
@@ -112,6 +114,7 @@ it('requires confirmation before removing a connection and keeps cancellation re
     runpodPods={async () => []} form={config} routing={form({ useHardware: true })} check={async () => [state]}
     storeCredential={async () => {}} />)
   await act(async () => {})
+  fireEvent.click(screen.getByRole('button', { name: /Workstation/ }))
   fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
   expect(config.mutate).not.toHaveBeenCalled()
   expect(screen.getByText(/does not delete the server/)).toBeTruthy()
@@ -167,7 +170,7 @@ it('connects an existing RunPod HTTP port without using its account key as a wor
   render(<HardwarePage removeCredential={async () => {}} form={config} routing={form({ useHardware: false })} check={async () => []}
     storeCredential={storeCredential} runpodPods={discover} />)
   await act(async () => {})
-  fireEvent.click(screen.getByRole('button', { name: 'Add hardware' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add device' }))
   fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'RunPod GPU' } })
   fireEvent.change(screen.getByLabelText('Connection'), { target: { value: 'runpod' } })
   fireEvent.change(screen.getByLabelText('RunPod account API key'), { target: { value: 'account-fixture-key' } })
@@ -196,6 +199,7 @@ it('keeps an existing worker credential intact and removes only a refused saveâ€
   render(<HardwarePage form={config} routing={form({ useHardware: true })} check={async () => [state]}
     storeCredential={store} removeCredential={remove} runpodPods={async () => []} />)
   await act(async () => {})
+  fireEvent.click(screen.getByRole('button', { name: /Workstation/ }))
   fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
   fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'new-fixture-token' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save and check' }))

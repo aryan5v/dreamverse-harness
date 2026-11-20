@@ -4,12 +4,14 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ImageModel, OpenRouterCatalog, OpenRouterSettings, SpeechModel, VideoModel } from '@dv/openrouter/types'
+import { fetchCloudAccount } from '@dv/ui-kit/cloud-model-settings.ts'
 import { openRouterSettings } from './settings.ts'
 
 export const inject = ['dvCloudModels', 'configForms', 'remote', 'remote.credentials']
 export function apply(ctx: Context): void {
   ctx.effect(() => ctx.dvCloudModels.register(openRouterSettings({
     form: ctx.configForms.get<OpenRouterSettings>('dv-openrouter'),
+    account: signal => fetchCloudAccount('/api/dv/openrouter/account', signal),
     enableOperator: async (ref: string) => {
       const form = ctx.configForms.get<{ providers: Record<string, Record<string, unknown>> }>('llm-pi-ai')
       const state = form.getSnapshot()

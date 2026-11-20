@@ -34,7 +34,7 @@ it('loads all three media catalogs through one provider and stores only the key 
   const storeKey = vi.fn(async () => {})
   const discover = vi.fn(async () => both)
   const enableOperator = vi.fn(async () => {})
-  const provider = openRouterSettings({ form, storeKey, discover, enableOperator })
+  const provider = openRouterSettings({ form, storeKey, discover, enableOperator, account: async () => ({ status: 'missing' }) })
   const signal = new AbortController().signal
   const catalog = await provider.load('fixture-key', signal)
   expect(storeKey).toHaveBeenCalledWith('OPENROUTER_API_KEY', 'fixture-key')
@@ -58,7 +58,7 @@ it('keeps saved selections available for removal even when they are missing from
   await form.mutate([{ op: 'set', path: ['models'], value: { retired: 'example/retired-video', second: 'example/retired-video', veo: model.id } }])
   const warning = 'Configured model is unavailable.'
   const provider = openRouterSettings({
-    form, storeKey: async () => {}, discover: async () => ({ ...both, error: warning }), enableOperator: async () => {},
+    form, storeKey: async () => {}, discover: async () => ({ ...both, error: warning }), enableOperator: async () => {}, account: async () => ({ status: 'missing' }),
   })
   expect(await provider.load('', new AbortController().signal)).toMatchObject({ warning })
   const retired = provider.settings.getSnapshot().enabled.find(row => row.id === 'example/retired-video')!

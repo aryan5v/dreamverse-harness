@@ -39,7 +39,7 @@ class Form implements ConfigForm<ReactorSettings> {
 it('loads supported shot workflows and persists the chosen deployment without its key', async () => {
   const form = new Form()
   const storeKey = vi.fn(async () => {})
-  const provider = reactorSettings({ form, storeKey, discover: async () => catalog })
+  const provider = reactorSettings({ form, storeKey, discover: async () => catalog, account: async () => ({ status: 'missing' }) })
   const loaded = await provider.load('rk_fixture', new AbortController().signal)
   expect(storeKey).toHaveBeenCalledExactlyOnceWith('REACTOR_API_KEY', 'rk_fixture')
   if ('credentialError' in loaded) throw new Error('Expected a catalog')
@@ -57,7 +57,7 @@ it('shows a preconfigured deployment before discovery and refuses to enable a di
   await form.mutate([{ op: 'set', path: ['models'], value: { custom: { profile: 'pika-h3-flex', modelId: 'team/custom' } } }], 1)
   const storeKey = vi.fn(async () => {})
   const provider = reactorSettings({
-    form, storeKey, discover: async () => ({ models: [{ ...model, status: 'disabled', shotModels: [] }] }),
+    form, storeKey, discover: async () => ({ models: [{ ...model, status: 'disabled', shotModels: [] }] }), account: async () => ({ status: 'missing' }),
   })
   expect(provider.settings.getSnapshot().enabled).toEqual([{ id: 'team/custom', name: 'team/custom', media: 'video' }])
   const loaded = await provider.load('', new AbortController().signal)

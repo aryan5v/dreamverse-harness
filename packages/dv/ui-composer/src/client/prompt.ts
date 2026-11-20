@@ -10,12 +10,14 @@
  * @module @dv/ui-composer/prompt
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import { createElement, useSyncExternalStore } from 'react'
+import { createElement, useEffect, useSyncExternalStore } from 'react'
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@dv/ui-canvas/contract'
 import { DvClient, errorMessage } from '@dv/ui-kit/api.ts'
+import type {} from '@dv/ui-kit/cloud-model-settings.ts'
 import { DV_CURRENT_PROJECT_EVENT, getCurrentProject } from '@dv/ui-kit/current-project.ts'
 import { createRegistry, type VersionKind } from '@dv/ui-kit/registries.ts'
 import type { WireModelEntry, WireState } from '@dv/ui-kit/types.ts'
@@ -209,13 +211,34 @@ export function applyPrompt(ctx: ClientContext): void {
     window.addEventListener(DV_CURRENT_PROJECT_EVENT, follow)
     return () => { window.removeEventListener(DV_CURRENT_PROJECT_EVENT, follow) }
   }, 'dv-composer: open project')
+  const defaultsForm = (): ConfigForm<{ defaults?: Record<string, { provider: string; model: string }> }> | undefined =>
+    ctx.get('configForms')?.get('dv-models')
+  /** Blank conversations that already received the Settings defaults, so a re-render records them only once. */
+  const seeded = new Set<string>()
   function ConversationModels({ sessionId }: { sessionId: string }) {
     const projectId = useSyncExternalStore(currentProject.subscribe, currentProject.getSnapshot)
+    const state = states(projectId ?? '')
+    const project = useSyncExternalStore(state.subscribe, state.getSnapshot)
+    const save = (modality: string, selection: { provider: string; model: string } | null) => projectId === null
+      ? Promise.reject(new Error('Open a project to choose its models.'))
+      : client.runOperation({ project: projectId, session: sessionId, surface: 'chat', operation: 'models.select',
+        params: { modality, ...selection === null ? { provider: '', model: '' } : selection } })
+    useEffect(() => {
+      if (projectId === null || project === null || seeded.has(sessionId)) return
+      const summaries: Readonly<Record<string, { blank: boolean } | undefined>> = ctx.sessions.list.getSnapshot().byId
+      if (summaries[sessionId]?.blank !== true) return
+      const slice = project.components['models'] as { conversations?: Record<string, unknown> } | undefined
+      if (slice?.conversations?.[sessionId] !== undefined) return
+      const defaults = defaultsForm()?.getSnapshot().value?.defaults ?? {}
+      seeded.add(sessionId)
+      for (const [modality, selection] of Object.entries(defaults)) {
+        // A default whose model is no longer configured stays Auto; the conversation's picker shows the outcome.
+        save(modality, selection).catch((_unavailable: unknown) => undefined)
+      }
+    }, [projectId, project, sessionId])
     return createElement(ModelPickers, {
-      key: `${projectId ?? ''}:${sessionId}`, sessionId, state: states(projectId ?? ''), models, reloadModels: models.reload,
-      save: (modality, selection) => projectId === null ? Promise.reject(new Error('Open a project to choose its models.'))
-        : client.runOperation({ project: projectId, session: sessionId, surface: 'chat', operation: 'models.select',
-          params: { modality, ...selection === null ? { provider: '', model: '' } : selection } }),
+      key: `${projectId ?? ''}:${sessionId}`, sessionId, state, models, reloadModels: models.reload, save,
+      logoOf: provider => ctx.get('dvCloudModels')?.getSnapshot().find(entry => entry.id === provider)?.logo,
     })
   }
   ctx.effect(() => ctx.slots.inject('conversation.input.left', () => ctx.slots.register(

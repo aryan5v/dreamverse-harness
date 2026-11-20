@@ -1,13 +1,15 @@
 /** Adapt OpenRouter's configuration and catalog to the DreamVerse models table. */
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { OpenRouterCatalog, OpenRouterSettings } from '@dv/openrouter/types'
-import { cloudSelection, type CloudMedia, type CloudModelSettings } from '@dv/ui-kit/cloud-model-settings.ts'
+import { cloudSelection, type CloudAccount, type CloudMedia, type CloudModelSettings } from '@dv/ui-kit/cloud-model-settings.ts'
+import { OpenRouterLogo } from './logo.tsx'
 
 interface Options {
   form: ConfigForm<OpenRouterSettings>
   storeKey(ref: string, key: string): Promise<void>
   discover(signal?: AbortSignal): Promise<OpenRouterCatalog>
   enableOperator(ref: string): Promise<void>
+  account(signal: AbortSignal): Promise<CloudAccount>
 }
 
 const fields = { video: 'models', image: 'imageModels', audio: 'audioModels' } as const
@@ -18,7 +20,7 @@ const media: readonly CloudMedia[] = ['video', 'image', 'audio']
  * @param options - the existing catalog and credential operations.
  * @returns the OpenRouter contribution.
  */
-export function openRouterSettings({ form, storeKey, discover, enableOperator }: Options): CloudModelSettings {
+export function openRouterSettings({ form, storeKey, discover, enableOperator, account }: Options): CloudModelSettings {
   const settings = cloudSelection(form, state => ({
     writable: state.status === 'ready' && state.writable,
     enabled: media.flatMap(kind => [...new Set(Object.values(state.value?.[fields[kind]] ?? {}))]
@@ -32,7 +34,8 @@ export function openRouterSettings({ form, storeKey, discover, enableOperator }:
   }
 
   return {
-    id: 'openrouter', name: 'OpenRouter', media, settings,
+    id: 'openrouter', name: 'OpenRouter', domain: 'openrouter.ai', keyUrl: 'https://openrouter.ai/settings/keys',
+    logo: OpenRouterLogo, media, settings, account,
     async load(apiKey, signal) {
       await saveKey(apiKey)
       signal.throwIfAborted()

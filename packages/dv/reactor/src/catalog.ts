@@ -9,6 +9,37 @@ interface Model {
 const CATALOG_URL = 'https://api.reactor.inc/models'
 const PAGE_SIZE = 200
 
+const API_ORIGIN = 'https://api.reactor.inc'
+
+/** The account an API key acts in, with its remaining balance in US dollars. */
+export interface ReactorAccount { label: string | null; balanceUsd: number | null }
+
+/**
+ * Read the account of an API key and its credit balance.
+ * @param apiKey - the host's Reactor API key.
+ * @param signal - stops upstream requests when the caller closes the connection.
+ * @returns the user's email and the account's balance; a balance Reactor reports as unavailable is null.
+ * @throws ReactorCatalogError when Reactor rejects the key.
+ */
+export async function readAccount(apiKey: string, signal: AbortSignal): Promise<ReactorAccount> {
+  const get = (path: string): Promise<Response> =>
+    fetch(new URL(path, API_ORIGIN), { headers: { Authorization: `Bearer ${apiKey}` }, signal, redirect: 'error' })
+  const me = await get('/me')
+  if (!me.ok) throw new ReactorCatalogError(me.status)
+  const user: unknown = await me.json()
+  const account: unknown = typeof user === 'object' && user !== null ? Reflect.get(user, 'account_id') : undefined
+  const email: unknown = typeof user === 'object' && user !== null ? Reflect.get(user, 'email') : undefined
+  const label = typeof email === 'string' ? email : null
+  if (typeof account !== 'string' || account === '') return { label, balanceUsd: null }
+  const credits = await get(`/accounts/${encodeURIComponent(account)}/credits`)
+  if (credits.status === 401 || credits.status === 403) throw new ReactorCatalogError(credits.status)
+  if (!credits.ok) return { label, balanceUsd: null }
+  const body: unknown = await credits.json()
+  const usd: unknown = typeof body === 'object' && body !== null ? Reflect.get(body, 'balance_usd') : undefined
+  const balance = typeof usd === 'string' ? Number(usd) : NaN
+  return { label, balanceUsd: Number.isFinite(balance) ? balance : null }
+}
+
 /** The Reactor catalog rejected an authenticated request. */
 export class ReactorCatalogError extends Error {
   /** @param status - the status returned by Reactor's catalog endpoint. */
