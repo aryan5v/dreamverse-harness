@@ -27,7 +27,8 @@ export type CloudCatalogResult = { models: readonly CloudModel[]; warning?: stri
 /**
  * A credential's state and the provider's remaining balance. `missing` means no key is saved; `rejected` means the
  * provider refused the key; `unavailable` means the account could not be read for another reason; `needs-setup`
- * means the provider accepted the key but the account needs a step the `message` names.
+ * means the provider accepted the key but the account needs a step the `message` names. It mirrors the host wire type
+ * `AccountStatus` of `@dv/models`, which UI core may not import.
  */
 export type CloudAccount = { status: 'missing' | 'rejected' | 'unavailable' }
   | { status: 'needs-setup'; message: string }
