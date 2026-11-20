@@ -24,6 +24,8 @@ Use this bundle to run DreamVerse as a `dsh` profile. It inserts the model catal
 <a id="use-this-package"></a>
 ## Use this package
 
+Configure Reactor model aliases and a host credential to generate cloud video. See the [Reactor provider setup](../../dv/reactor/README.md).
+
 ```sh
 scripts/video-harness/launch.sh web --trusted-host <public host>   # chat page on DV_PORT (default 8092)
 scripts/video-harness/launch.sh headless "给我一个这个人跳舞的视频" --session-id demo   # one task, printed result
@@ -58,7 +60,7 @@ The `dv-minimax-skills` and `dv-ui-minimax-skills` rows mount [`@dv/minimax-skil
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through the tools, the `dv:project` prompt section and the project state and update messages of `@dv/project`, the mention context of `@dv/chat-references`, and the skills the bundle mounts; the bundle itself adds no model-visible text.
+Indirectly, through the tools, the `dv:project` prompt section and the project state and update messages of `@dv/project`, the mention context of `@dv/chat-references`, and the skills the bundle mounts. The configured DreamVerse persona directs the agent to render a text-only shot directly with the selected model's `t2v` entry, preparing images only when the user asks or the shot needs references.
 
 #### KV Cache effect
 

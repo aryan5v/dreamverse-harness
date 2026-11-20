@@ -28,6 +28,17 @@ async function errorReason(response: Response, key: string): Promise<string | nu
   return text.length > REASON_LIMIT ? `${text.slice(0, REASON_LIMIT)}…` : text
 }
 
+/** An OpenRouter request rejected with an HTTP status. */
+export class OpenRouterHttpError extends Error {
+  /**
+   * @param status - the upstream HTTP status.
+   * @param message - the sanitized error description.
+   */
+  constructor(readonly status: number, message: string) {
+    super(message)
+  }
+}
+
 export class OpenRouterApi {
   private readonly base: URL
   constructor(baseUrl: string, private readonly resolveKey: () => Promise<string>, private readonly pollMs: number,
@@ -45,7 +56,7 @@ export class OpenRouterApi {
     const response = await this.fetcher(new URL(path, this.base), { ...init, headers, redirect: 'error' })
     if (!response.ok) {
       const reason = await errorReason(response, key)
-      throw new Error(`OpenRouter API returned HTTP ${response.status}${reason === null ? '' : `: ${reason}`}. `
+      throw new OpenRouterHttpError(response.status, `OpenRouter API returned HTTP ${response.status}${reason === null ? '' : `: ${reason}`}. `
         + 'Check the key, credit balance, and selected model.')
     }
     return response
@@ -74,6 +85,30 @@ export class OpenRouterApi {
       }),
     ])
     return videoCatalog(models, references)
+  }
+
+  /**
+   * Look up the configured key and read account credits when the key can access them.
+   * @param signal - aborts both requests.
+   * @returns The key label and available account credit in US dollars. A balance outside the key's permissions is null.
+   * @throws OpenRouterHttpError when key lookup fails.
+   */
+  async account(signal: AbortSignal): Promise<{ balanceUsd: number | null; label: string | null }> {
+    const key: unknown = await this.catalogJson('key', signal)
+    if (typeof key !== 'object' || key === null || !('data' in key) || typeof key.data !== 'object' || key.data === null
+      || !('is_management_key' in key.data) || typeof key.data.is_management_key !== 'boolean') {
+      throw new Error('OpenRouter returned invalid key metadata.')
+    }
+    const label = 'label' in key.data && typeof key.data.label === 'string' ? key.data.label : null
+    if (!key.data.is_management_key) return { balanceUsd: null, label }
+    const credits = await this.catalogJson('credits', signal).catch((error: unknown) => {
+      if (signal.aborted) throw error
+      return null
+    }) as { data?: { total_credits?: unknown; total_usage?: unknown } } | null
+    const total = credits?.data?.total_credits
+    const used = credits?.data?.total_usage
+    const balance = typeof total === 'number' && typeof used === 'number' ? total - used : NaN
+    return { balanceUsd: Number.isFinite(balance) ? balance : null, label }
   }
 
   /** Read current image choices. */

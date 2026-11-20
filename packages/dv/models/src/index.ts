@@ -11,7 +11,7 @@
  * @module @dv/models
  */
 import { readFileSync } from 'node:fs'
-import { Service, type Context } from '@deepseek-ai/cordis'
+import { Service, type Context, type Volatile } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-skill'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -20,6 +20,7 @@ import z from '@deepseek-ai/schemastery'
 import type { ModalityId, ModelEntry, ModelFilter, ModelKey, TaskId } from './types.ts'
 import { installModelControls } from './selection.ts'
 export { assertModelSelection, modelSelection } from './selection.ts'
+export * from './sync.ts'
 
 export type * from './types.ts'
 
@@ -34,11 +35,18 @@ declare module '@deepseek-ai/cordis' {
 export interface Config {
   /** How long `catalog()` waits for one entry's `schema()` before it lists the entry with schema null, in ms. */
   catalogSchemaTimeoutMs: number
+  /**
+   * The model a new conversation starts on, by modality, as `{ provider, model }`. The DreamVerse composer records it
+   * as the conversation's `models.select` choice when a conversation without choices opens; an absent modality starts
+   * on Auto.
+   */
+  defaults: Volatile<Record<string, { provider: string; model: string }>>
 }
 
 /** Loader validation. */
-export const Config: z<Config> = z.object({
+export const Config = z.object({
   catalogSchemaTimeoutMs: z.natural().min(1).default(5000),
+  defaults: z.dict(z.object({ provider: z.string().required(), model: z.string().required() })).default({}).volatile(),
 })
 
 /** The fields of a model key. */
@@ -109,7 +117,8 @@ export function renderTimings(headers: { get(name: string): string | null }): Re
 
 /** Convert an entry to its key and its description, as `dv_models_list` and `dv_models_get` return them. */
 function toModelListItem(entry: ModelEntry): Record<string, JsonValue> {
-  return { modality: entry.modality, task: entry.task, provider: entry.provider, model: entry.model, description: entry.description,
+  return { modality: entry.modality, task: entry.task, provider: entry.provider, model: entry.model, hosting: entry.hosting,
+    description: entry.description,
     ...entry.workerRouting === true ? { worker_selection: true } : {},
     ...entry.displayName === undefined ? {} : { display_name: entry.displayName } }
 }
@@ -341,8 +350,8 @@ export default class DvModels extends Service {
   private defineModelsListTool() {
     return defineTool({
       name: 'dv_models_list',
-      description: 'List the models you can generate with, each with its key (modality, task, provider, model), its description '
-        + 'and the name of its prompt skill, if it has one.',
+      description: 'List the models you can generate with, each with its key (modality, task, provider, model), its description, '
+        + 'its hosting, and its display name, worker selection and prompt skill when available.',
       parameters: {
         modality: { type: 'string', description: 'Only models of this modality.' },
         task: { type: 'string', description: 'Only models for this task.' },

@@ -23,12 +23,14 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-DreamVerse 套件默认挂载 `dv-openrouter`，不配置任何模型。在“视频、图片和音频 API”设置中保存密钥并启用模型。操作员 LLM 继续使用现有“模型”设置和 pi-ai OpenRouter 适配器。
+DreamVerse 套件默认挂载 `dv-openrouter`，不配置任何模型。在“设置 → 模型 → OpenRouter”中保存密钥并启用模型。操作员 LLM 继续使用现有“模型”设置和 pi-ai OpenRouter 适配器。
 
 `models` 将本地别名映射到 OpenRouter 视频模型 ID，`imageModels` 将本地别名映射到 OpenRouter 图片模型 ID，`audioModels` 将本地别名映射到 OpenRouter 语音模型 ID；别名使用小写字母、数字和连字符。`credentialRef` 默认为 `OPENROUTER_API_KEY`，引用现有凭据存储。`baseUrl` 默认为 `https://openrouter.ai/api/v1/`。`pollIntervalMs` 默认为 5000。
 
 选择器仅显示已配置模型。兼容目录条目提供 T2V；模型目录为该模型列出图片输入时注册 REF2V，视频目录声明相应端点图像时注册 I2V 和 FL2V。每个图片模型注册为 T2I，因此 `image.generate`（`dv_image_generate`）可以使用它；每个语音模型注册为 T2A，因此 `audio.generate`（`dv_audio_generate`）可以使用它。API 模型不需要下载本地权重或加载 GPU。
 
+
+`GET /api/dv/openrouter/account` 检查主机配置的密钥，无需生成媒体。`status` 为 `missing`、`rejected`、`unavailable` 或 `connected`。连接成功时返回密钥的 `label`（如有）和 `balanceUsd`。余额来自 OpenRouter 账户额度，密钥无法读取时为 null。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
@@ -39,13 +41,16 @@ DreamVerse 套件默认挂载 `dv-openrouter`，不配置任何模型。在“�
 
 语音提供方读取 `models?output_modalities=speech`，保留输出模态包含 `speech`、且列出 `endpoints` 时其中包含 `/api/v1/audio/speech` 的条目，并读取 `supported_voices` 中的声音。语音调用的提示词是要朗读的纯文本。其 `extra` 接受 `voice` 和 `instructions`：目录列出声音时 `voice` 必填且必须是其中之一；未列出时可省略，由服务商使用默认声音。其他 `extra` 键在提交前被拒绝。提供方提交一次 `POST audio/speech`：`google/` 和 `heygen/` 模型在 OpenRouter 上只提供 PCM，用 `response_format: pcm`，其他模型用 `mp3`（MiniMax 只提供 MP3），并通过共享 ffmpeg 服务把回答转换为 WAV 片段，原始 `audio/pcm` 按 24 kHz 单声道 16 位读取；片段时长由 ffprobe 读取。
 
-基于时长的请求省略未知像素尺寸和帧数。原生 FastVideo 和 UniServe 保留其配置的帧几何。空配置不请求服务商；实时模型配置变更更新现有目录。配置的别名不是小写字母、数字和连字符时，加载失败。启动时目录请求或模型注册失败，插件记录警告并保留目录路由和设置监听；下一次目录发现或模型变更会重试注册。目录中不提供的已配置模型 id 会被跳过，其余已配置模型照常注册；目录路由仍返回各目录，并在 `error` 字段中列出每个被跳过的 id，设置页在目录旁显示该信息，并把每个被跳过的 id 列为不可用的行，提供其移除操作；下一次目录发现或模型变更会重试被跳过的 id。
+基于时长的请求省略未知像素尺寸和帧数。原生 FastVideo 和 UniServe 保留其配置的帧几何。空配置不请求服务商；实时模型配置变更更新现有目录。配置的别名不是小写字母、数字和连字符时，加载失败。启动时目录请求或模型注册失败，插件记录警告并保留目录路由和设置监听；下一次目录发现或模型变更会重试注册。目录中不提供的已配置模型 id 会被跳过，其余已配置模型照常注册；目录路由仍返回各目录，并在 `error` 字段中列出每个被跳过的 id，设置页在目录旁显示该信息，并把每个被跳过的 id 列为不可用的行，提供其取消勾选操作；下一次目录发现或模型变更会重试被跳过的 id。
 
 
 <a id="further-exploration"></a>
 ## 进一步探索
 
 参阅 [OpenRouter 视频 API 指南](https://openrouter.ai/docs/guides/overview/multimodal/video-generation)、[图片生成指南](https://openrouter.ai/docs/guides/overview/multimodal/image-generation)和[文字转语音指南](https://openrouter.ai/docs/features/multimodal/tts)。
+
+- [OpenRouter 维护指南](../../../docs/cookbook/providers/openrouter.zh.md)
+- [贡献 DreamVerse 提供方](../../../docs/cookbook/adding-a-dreamverse-provider.zh.md)
 
 <a id="model-experience"></a>
 ## 模型体验
@@ -54,7 +59,7 @@ DreamVerse 套件默认挂载 `dv-openrouter`，不配置任何模型。在“�
 
 #### 模型看到的内容
 
-智能体看到提供方 `openrouter`、已配置别名、支持的任务模式、精确时长选项、图片模型的 `extra` 选项、语音模型的声音、云端取消限制，以及视频模型不接受音频和视频参考。配置了视频模型且技能注册表已挂载时，技能目录列出提示词技能 `openrouter-video-prompting`，描述为 `Prompt rules for OpenRouter cloud video models, tasks t2v, ref2v, i2v and fl2v. OpenRouter video models take no audio or video references for now.`，因此智能体无需列出模型即可知道这一限制；加载该技能返回 [`skills/openrouter-video-prompting.md`](skills/openrouter-video-prompting.md)。提示词使用端点标签，而非内部素材引用 URL。
+智能体看到提供方 `openrouter`、已配置别名、支持的任务模式、精确时长选项、图片模型的 `extra` 选项、语音模型的声音、云端取消限制，以及视频模型不接受音频和视频参考。配置了视频模型且技能注册表已挂载时，技能目录列出提示词技能 `openrouter-video-prompting`，描述为 `Prompt rules for OpenRouter cloud video models, tasks t2v, ref2v, i2v and fl2v. OpenRouter video models take no audio or video references for now.`，因此智能体无需列出模型即可知道这一限制；加载该技能返回 [`skills/openrouter-video-prompting.md`](skills/openrouter-video-prompting.md)。提示词使用端点标签，而非内部素材引用 URL。模型目录报告 `hosting: managed`。
 
 #### Token 影响
 

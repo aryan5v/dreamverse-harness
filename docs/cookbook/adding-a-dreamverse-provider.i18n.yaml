@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/cookbook/adding-a-dreamverse-provider.md
-adding-a-dreamverse-provider.md: 23a70ea8d22fa803e5a135726e988c6b9482126f
-adding-a-dreamverse-provider.zh.md: 5a5f7d446b0ccb3abedd88628986718f6ba5a307
+adding-a-dreamverse-provider.md: 9dd47963240389105e6218da916381acca0f85b4
+adding-a-dreamverse-provider.zh.md: 6cabcc0acc59796c11a07ee9bdef574404a8a017

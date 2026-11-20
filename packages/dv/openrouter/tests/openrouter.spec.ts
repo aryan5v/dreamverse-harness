@@ -22,6 +22,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 import { provideChatServices } from '../../project/tests/workspaces.ts'
 import { shotGeometry } from '../../shot-render/src/render.ts'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { ConnectionFetchRoute } from '@deepseek-ai/dsh-client-connection'
 import * as OpenRouter from '../src/index.ts'
 import { imageRows, speechRows } from './client.spec.ts'
@@ -35,14 +36,15 @@ function isVideoEntry(entry: ModelEntry): entry is ModelEntry<TaskOfPrimitive<'v
 const ffmpeg = process.env['DV_FFMPEG'] ?? 'ffmpeg'
 const ffprobe = process.env['DV_FFPROBE'] ?? 'ffprobe'
 
-async function fixture(options: { failCatalog?: boolean; models?: Record<string, string>; images?: boolean | Record<string, string>; speech?: 'mp3' | 'pcm'; references?: string[] } = {}) {
+async function fixture(options: { failCatalog?: boolean; models?: Record<string, string>; images?: boolean | Record<string, string>; speech?: 'mp3' | 'pcm'; references?: string[]; credentialRef?: string } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'dv-openrouter-'))
   cleanup.push(async () => { rmSync(dir, { recursive: true, force: true }) })
   const videoPath = join(dir, 'fixture.mp4')
   await promisify(execFile)(ffmpeg, ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=64x64:d=1:r=8',
     '-pix_fmt', 'yuv420p', videoPath])
   const clip = readFileSync(videoPath)
-  const remote = { failCatalog: options.failCatalog ?? false }
+  const remote = { failCatalog: options.failCatalog ?? false, keyStatus: 200, creditStatus: 200,
+    managementKey: false, keyLabel: 'Fixture' }
   const jpegPath = join(dir, 'fixture.jpg')
   await promisify(execFile)(ffmpeg, ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=red:s=64x36', '-frames:v', '1', jpegPath])
   const jpeg = readFileSync(jpegPath)
@@ -61,6 +63,14 @@ async function fixture(options: { failCatalog?: boolean; models?: Record<string,
     response.setHeader('content-type', 'application/json')
     if (path === '/api/v1/videos/models' && remote.failCatalog) { response.statusCode = 503; response.end('{}') }
     else if (path === '/api/v1/videos/models') response.end(JSON.stringify(CATALOG))
+    else if (path === '/api/v1/key') {
+      response.statusCode = remote.keyStatus
+      response.end(JSON.stringify({ data: { label: remote.keyLabel, is_management_key: remote.managementKey, limit_remaining: 10 } }))
+    }
+    else if (path === '/api/v1/credits') {
+      response.statusCode = remote.creditStatus
+      response.end(JSON.stringify({ data: { total_credits: 25, total_usage: 12.5 } }))
+    }
     else if (path === '/api/v1/images/models') response.end(JSON.stringify(imageRows))
     else if (path === '/api/v1/models?output_modalities=speech') response.end(JSON.stringify(speechRows))
     else if (path === '/api/v1/models?output_modalities=video') {
@@ -96,6 +106,7 @@ async function fixture(options: { failCatalog?: boolean; models?: Record<string,
     { id: 'assets', name: 'cordis:assetPool' }, { id: 'models', name: 'cordis:models' },
     { id: 'provider', name: 'cordis:openrouter', config: {
       baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/`, models: options.models ?? { cloud: 'fixture/video' }, pollIntervalMs: 1,
+      ...options.credentialRef === undefined ? {} : { credentialRef: options.credentialRef },
       ...options.images === true ? { imageModels: { flux: 'fixture/image' } } : typeof options.images === 'object' ? { imageModels: options.images } : {},
       ...options.speech === undefined ? {} : { audioModels: { narrator: 'fixture/speech', cloner: 'heygen/fixture-voice' } },
     } },
@@ -195,6 +206,35 @@ describe('OpenRouter video provider composition', () => {
 })
 
 
+it('reports OpenRouter key status and reads only account-wide credits', async () => {
+  const { ctx, requests, remote, routes } = await fixture({ models: {} })
+  const route = routes.get('/api/dv/openrouter/account')
+  if (route === undefined) throw new Error('Missing OpenRouter account route')
+  const account = async () => {
+    const response = await route.fetch(new Request('http://dsh.local/api/dv/openrouter/account'))
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    return response.json()
+  }
+
+  expect(await account()).toEqual({ status: 'connected', balanceUsd: null, label: 'Fixture' })
+  expect(requests.map(({ path }) => path)).toEqual(['/api/v1/key'])
+  remote.managementKey = true
+  expect(await account()).toEqual({ status: 'connected', balanceUsd: 12.5, label: 'Fixture' })
+  remote.creditStatus = 403
+  remote.keyLabel = 'fixture-key'
+  expect(await account()).toEqual({ status: 'connected', balanceUsd: null, label: null })
+  remote.keyStatus = 401
+  expect(await account()).toEqual({ status: 'rejected' })
+  remote.keyStatus = 503
+  expect(await account()).toEqual({ status: 'unavailable' })
+  await ctx.credentials.unset(credentialRef('OPENROUTER_API_KEY'))
+  expect(await account()).toEqual({ status: 'missing' })
+  expect(requests.map(({ path }) => path)).toEqual([
+    '/api/v1/key', '/api/v1/key', '/api/v1/credits', '/api/v1/key', '/api/v1/credits', '/api/v1/key', '/api/v1/key',
+  ])
+  expect(requests.every(({ method, key }) => method === 'GET' && key === 'Bearer fixture-key')).toBe(true)
+})
+
 it('withdraws removed cloud choices when replacement settings cannot register, still lists the catalogs, and recovers', async () => {
   const { ctx, routes } = await fixture()
   const provider = [...ctx.loader.entries()].find(entry => entry.options.id === 'provider')
@@ -236,7 +276,7 @@ it('registers the configured models that their catalogs offer and names each una
   expect(partial.body).toMatchObject({ data: [{ id: 'fixture/video' }], images: expect.arrayContaining([expect.objectContaining({ id: 'fixture/image' })]) as unknown })
   expect(partial.body.error).toContain('OpenRouter video model example/retired-video is unavailable')
   expect(partial.body.error).toContain('OpenRouter image model example/retired-image-model is unavailable')
-  expect(partial.body.error).toMatch(/Remove unavailable models in Video, image & audio APIs settings\.$/)
+  expect(partial.body.error).toMatch(/Remove unavailable models under Models → OpenRouter\.$/)
   const provider = [...ctx.loader.entries()].find(entry => entry.options.id === 'provider')
   if (provider === undefined) throw new Error('Missing provider fixture')
   const original = provider.options.config as Record<string, unknown>
@@ -252,6 +292,15 @@ it('fails at load for a configured alias that breaks the alias rule', async () =
   const { ctx } = await fixture({ models: { Bad: 'fixture/video' } })
   expect([...ctx.loader.entries()].find(entry => entry.options.id === 'provider')?.fiber?.state).toBe(3)
   expect(ctx.dvModels.list()).toEqual([])
+})
+
+it('registers an image model alone and answers a catalog request with an error for a credential reference that is not a name', async () => {
+  const { ctx } = await fixture({ models: {}, images: true })
+  expect(ctx.dvModels.list().map(entry => [entry.modality, entry.model])).toEqual([['image', 'flux']])
+  const invalid = await fixture({ credentialRef: 'not a name' })
+  expect(invalid.ctx.dvModels.list()).toEqual([])
+  const response = await invalid.routes.get('/api/dv/openrouter/catalog')?.fetch(new Request('http://dsh.local/api/dv/openrouter/catalog'))
+  expect(response?.status).toBe(502)
 })
 
 it('applies saved model settings after a failed boot catalog sync', async () => {

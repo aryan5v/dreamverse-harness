@@ -63,6 +63,7 @@ DreamVerse bundle [`@dv/bundle`](../../bundle/dv/README.zh.md) 以行 `dv-models
 | 成员 | 约定 |
 | --- | --- |
 | `description` | 模型的长处和短处。agent 和用户比较描述，在相似的模型之间选择。 |
+| `hosting` | 必填。运行模型的服务器由托管服务运营时为 `managed`，由用户自己运营时为 `self-hosted`。`dv_models_list` 和 `dv_models_get` 返回该值。 |
 | `facts()` | resolve 为后端报告的 `RenderModelFacts`。后端无法连接时 reject。 |
 | `schema()` | resolve 为描述模型所接受请求的 JSON：agent 需要的限制（例如时长、宽高比和分辨率）、各输入及其媒体类型和数量，以及 `extra` 中的参数。提供方插件定义该 JSON。模型目录把它原样交给 agent。后端无法连接时 reject。 |
 | `validateGenerationRequest(request)` | resolve 为模型无法渲染某个 `RenderRequest` 的每个原因，每个原因一句面向 agent 的话。原因包括无效的 `extra` 值。模型能渲染该请求时 resolve 为空列表。后端无法连接时 reject。 |
@@ -84,7 +85,7 @@ DreamVerse bundle [`@dv/bundle`](../../bundle/dv/README.zh.md) 以行 `dv-models
 | `seed` | 随机种子。 |
 | `extra` | 模型自有参数的值。`schema()` 描述它们，`validateGenerationRequest` 检查它们。 |
 
-`references` 和 `firstFrame` 承载 `dv_shot_render` 的 `reference` 和 `first_frame` 输入。
+`references`、`firstFrame` 和 `lastFrame` 分别承载 `dv_shot_render` 的 `reference`、`first_frame` 和 `last_frame` 输入。提供方通过注册目录条目并验证起始和结束图像来支持 `fl2v`。没有结束帧输入的旧记录解析为 `lastFrame: null`。此任务无需音频，是否生成声音取决于所选模型。
 
 | `RenderModelFacts` 字段 | 含义 |
 | --- | --- |
@@ -92,7 +93,7 @@ DreamVerse bundle [`@dv/bundle`](../../bundle/dv/README.zh.md) 以行 `dv-models
 | `aspectRatios` | 模型渲染的宽高比。默认值在前。 |
 | `resolutions` | 模型渲染的分辨率。默认值在前。 |
 | `frameSizes` | 以像素为单位的 `[width, height]`，按宽高比再按分辨率给出。 |
-| `minDurationSec`、`maxDurationSec` | 最短和最长的镜头，以整秒为单位。 |
+| `minDurationSec`、`maxDurationSec` | 最短和最长的镜头，以秒为单位。 |
 | `numFramesByDurationSec` | 从最小值到最大值的每个整秒时长的帧数。 |
 
 | `RenderStreamEvent` 类型 | 含义 |
@@ -100,7 +101,7 @@ DreamVerse bundle [`@dv/bundle`](../../bundle/dv/README.zh.md) 以行 `dv-models
 | `last_frame` | `png`：视频最后一帧的 PNG 字节。该事件位于 `video_start` 之前或最后一个 `chunk` 之后。 |
 | `video_start` | `mime`：视频的媒体类型。 |
 | `chunk` | `bytes`：视频字节的下一部分。 |
-| `done` | `timings`：后端的耗时。以 `_ms` 结尾的键是毫秒。其他键是秒。 |
+| `done` | `timings`：后端的耗时。以 `_ms` 结尾的键是毫秒。其他键是秒。如果供应商测量了产出，`durationSec` 表示实际视频时长。 |
 
 `renderTimings(headers)` 从 FastVideo 或 UniServe 应答的头部读取 `done` 的耗时：`inference_s` 来自 `x-inference-time-s`，`x-stage-durations` 的 JSON 对象中每个阶段对应一个 `<stage>_s`。缺少的头部、不是 JSON 的 `x-stage-durations` 和不是有限数的值不添加耗时，所以提供方仍然产出已完成的视频。
 
@@ -151,7 +152,22 @@ DreamVerse bundle [`@dv/bundle`](../../bundle/dv/README.zh.md) 以行 `dv-models
 
 **没有兼容代码。**`@dv/models` 只有一种键格式和一种条目类型。它不包含面向其他目录格式的别名、适配器或回退代码。
 
-仓库 skill [`dv-add-model-provider`](../../../.agents/skills/dv-add-model-provider/SKILL.md) 给出操作步骤和检查。
+[提供方贡献指南](../../../docs/cookbook/adding-a-dreamverse-provider.zh.md)是贡献者的操作流程。仓库 skill [`dv-add-model-provider`](../../../.agents/skills/dv-add-model-provider/SKILL.md) 给出智能体的操作步骤和检查。
+
+<a id="share-model-registration-code"></a>
+### 共用的模型注册代码
+
+把配置的别名映射为条目的提供方插件使用这些导出，而不是自己写注册循环。在 `apply` 中调用它们；这些注册是调用方插件的 effect，所以卸载插件会释放全部条目。
+
+| 导出 | 用途 |
+| --- | --- |
+| `assertModelAlias(alias, message)` | 当别名不是 1 到 120 个小写字母、数字和连字符，或不是以字母或数字开头时，抛出 `message`（`MODEL_ALIAS_PATTERN`）。对 `models` 配置的每个键调用它，使错误的别名让加载失败。 |
+| `ModelGroup` | 一个已配置模型的条目：`id`（如别名）、条目必须重建时会变化的 `stamp` 字符串，以及构建条目的 `entries()`。 |
+| `syncModelEntries(ctx, { label, conflict, groups })` | 用于只从配置解析模型的提供方。它在调用时注册 `groups()`，并在每次 `loader/volatile-update` 后再次注册。`stamp` 未变的组保留其条目，已变化或已移除的组被释放。它返回一个运行一次同步的函数。`groups()` 抛出，或某个键已被其他插件注册时，已注册的条目保持不变：第一次调用让插件加载失败，之后的调用在事件发射器中拒绝。 |
+| `syncModelEntriesAsync(ctx, { label, conflict, stamp, resolve, settled })` | 用于读取远程目录来解析模型的提供方。`resolve(signal)` 返回各组，以及对每个其目录中没有的已配置模型的一句说明。这些模型被跳过，其余照常注册，下一次同步会重试。被更新的同步取代的同步会丢弃其结果。当前同步失败会释放全部条目。volatile 更新从不拒绝，失败会传给 `settled`。卸载会中止 `signal` 并等待正在运行的同步。它返回 `{ sync }`，用于 `apply` 中的第一次同步和发现路由。 |
+| `createModelEntryRegistry(dvModels, conflict)` | 两种同步之下的注册表，供需要自己接线的提供方使用。`replace(groups)` 和 `clear()` 不注册 effect，所以由调用方释放。 |
+
+[`@dv/reactor`](../reactor/README.zh.md) 使用 `syncModelEntries`，[`@dv/openrouter`](../openrouter/README.zh.md) 使用 `syncModelEntriesAsync`。
 
 -----
 
@@ -184,6 +200,7 @@ DSH skill 注册表（`skills`）挂载期间，本服务从 `skills/video-model
 ## 进一步探索
 
 - [`@dv/fastvideo`](../fastvideo/README.zh.md)：用作示例的提供方插件。
+- [提供方贡献指南](../../../docs/cookbook/adding-a-dreamverse-provider.zh.md)：谁可以添加提供方、应复用哪些包，以及如何维护。
 - [`dv-add-model-provider`](../../../.agents/skills/dv-add-model-provider/SKILL.md)：添加提供方、模型或服务器的操作步骤。
 - [`@dv/shot-render`](../shot-render/README.zh.md)：用条目渲染镜头的消费方。
 - [`@dv/bundle`](../../bundle/dv/README.zh.md)：行 `dv-models` 和 `dv-fastvideo`。
@@ -199,12 +216,12 @@ DSH skill 注册表（`skills`）挂载期间，本服务从 `skills/video-model
 
 #### 模型看到什么
 
-DSH 工具注册表挂载期间，agent 看到工具 `dv_models_list`，带下面的描述。该工具有三个可选字符串参数：`modality`、`task` 和 `provider`。生成的工具目录不列出 DreamVerse 工具，所以本节引用工具描述和参数描述。一次调用返回一个文本块，内容是缩进的 JSON：一个数组，每个匹配条目一项，包含 `modality`、`task`、`provider`、`model` 和 `description`；条目有提示词 skill 时，还包含 `prompt_skill`，即该 skill 的名称。本包不向系统提示词添加任何内容。agent 只通过这两个工具和 `video-model-selection` skill 读取模型目录。
+DSH 工具注册表挂载期间，agent 看到工具 `dv_models_list`，带下面的描述。该工具有三个可选字符串参数：`modality`、`task` 和 `provider`。生成的工具目录不列出 DreamVerse 工具，所以本节引用工具描述和参数描述。一次调用返回一个文本块，内容是缩进的 JSON：一个数组，每个匹配条目一项，包含 `modality`、`task`、`provider`、`model`、托管方式 `hosting` 和 `description`；条目声明相关信息时，还包含显示名称 `display_name`、工作器选择能力 `worker_selection` 和提示词 skill 名称 `prompt_skill`。本包不向系统提示词添加任何内容。agent 只通过这两个工具和 `video-model-selection` skill 读取模型目录。
 
 ##### dv_models_list 描述
 
 ```markdown
-List the models you can generate with, each with its key (modality, task, provider, model), its description and the name of its prompt skill, if it has one.
+List the models you can generate with, each with its key (modality, task, provider, model), its description, its hosting, and its display name, worker selection and prompt skill when available.
 ```
 
 ##### dv_models_list 参数描述

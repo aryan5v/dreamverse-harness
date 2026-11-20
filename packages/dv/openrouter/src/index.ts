@@ -9,16 +9,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { credentialRef, isCredentialRefName } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { replacePromptCitations, type AssetId } from '@dv/project'
 import type {} from '@dv/asset-pool'
 import type {} from '@dv/ffmpeg'
-import type { ModelEntry, RenderRequest, TaskOfPrimitive } from '@dv/models'
+import { assertModelAlias, syncModelEntriesAsync, type ModelEntry, type ModelGroup, type ModelSyncResult, type RenderRequest, type TaskOfPrimitive } from '@dv/models'
 import type { GeneratedImage, ImageRequest } from '@dv/image-generate'
 import type { AudioRequest, GeneratedAudio } from '@dv/audio-generate'
-import { OpenRouterApi } from './client.ts'
+import { OpenRouterApi, OpenRouterHttpError } from './client.ts'
 import type { ImageModel, ReferenceMedia, SpeechModel, VideoModel } from './types.ts'
 
 export interface Config {
@@ -69,10 +69,7 @@ function taskInputs(task: TaskOfPrimitive<'video'>, model: VideoModel): Record<s
   return task === 'fl2v' ? { first_frame: frame, last_frame: frame } : { first_frame: frame }
 }
 
-/** Throw for an alias that is not 1-120 lowercase letters, digits and hyphens, starting with a letter or digit. */
-function checkAlias(alias: string): void {
-  if (!/^[a-z0-9][a-z0-9-]{0,119}$/.test(alias)) throw new Error('Choose a model alias using lowercase letters, numbers, and hyphens.')
-}
+const ALIAS_MESSAGE = 'Choose a model alias using lowercase letters, numbers, and hyphens.'
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
@@ -117,18 +114,11 @@ const VIDEO_PROMPT_SKILL = {
 export async function apply(ctx: Context, config: Config): Promise<void> {
   const client = new OpenRouterApi(config.baseUrl, async () => {
     const ref = config.credentialRef.get()
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(ref)) throw new Error('Invalid OpenRouter credential reference.')
+    if (!isCredentialRefName(ref)) throw new Error('Invalid OpenRouter credential reference.')
     const credential = await ctx.credentials.resolve(credentialRef(ref))
-    if (credential === undefined) throw new Error('Save an OpenRouter API key in Video APIs settings.')
+    if (credential === undefined) throw new Error('Save an OpenRouter API key under Models → OpenRouter.')
     return credential.value
   }, config.pollIntervalMs)
-  const lifetime = new AbortController()
-  const pending = new Set<Promise<void>>()
-  let disposed = false
-  let revision = 0
-  let current = ''
-  let removers: Array<() => void> = []
-  let registered: ModelEntry[] = []
   let registrationError: string | null = null
   const model = async (id: string, task: TaskOfPrimitive<'video'>): Promise<VideoModel> => {
     const found = (await client.catalog()).find(row => row.id === id)
@@ -136,7 +126,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return found
   }
   const entry = (alias: string, selected: VideoModel, task: TaskOfPrimitive<'video'>): ModelEntry<TaskOfPrimitive<'video'>> => ({
-    modality: 'video', provider: 'openrouter', model: alias, task, displayName: selected.name,
+    modality: 'video', provider: 'openrouter', hosting: 'managed', model: alias, task, displayName: selected.name,
     description: `OpenRouter: ${selected.name}, task ${task}. Cloud generation billed by the provider. `
       + (task === 'ref2v' ? 'Takes reference images with no first or last frame. ' : '')
       + 'Uses provider-published durations and output choices. Stopping local monitoring does not cancel the paid cloud job. '
@@ -239,7 +229,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return { bytes: png, mime: 'image/png', width: png.readUInt32BE(16), height: png.readUInt32BE(20) }
   }
   const imageEntry = (alias: string, selected: ImageModel): ModelEntry<'t2i'> => ({
-    modality: 'image', provider: 'openrouter', model: alias, task: 't2i', displayName: selected.name,
+    modality: 'image', provider: 'openrouter', hosting: 'managed', model: alias, task: 't2i', displayName: selected.name,
     description: `OpenRouter: ${selected.name}, an image from text. Cloud generation billed by the provider. The provider `
       + 'chooses the pixel size from extra.aspect_ratio and extra.resolution where the model offers them; size is not accepted.',
     facts: async () => ({ modelId: (await imageModel(selected.id)).id }),
@@ -302,7 +292,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     }
   }
   const speechEntry = (alias: string, selected: SpeechModel): ModelEntry<'t2a'> => ({
-    modality: 'audio', provider: 'openrouter', model: alias, task: 't2a', displayName: selected.name,
+    modality: 'audio', provider: 'openrouter', hosting: 'managed', model: alias, task: 't2a', displayName: selected.name,
     description: `OpenRouter: ${selected.name}, speech from text. Cloud generation billed by the provider. The prompt is `
       + 'the plain text to speak, without markup; extra.voice chooses the voice.',
     facts: async () => ({ modelId: (await speechModel(selected.id)).id }),
@@ -347,66 +337,44 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       return await asWav(bytes, mime)
     },
   })
-  const sync = async (): Promise<void> => {
-    const stamp = JSON.stringify([config.models.get(), config.imageModels.get(), config.audioModels.get()])
-    if (current === stamp) return
-    const version = ++revision
-    try {
-      const configured = Object.entries(config.models.get())
-      const configuredImages = Object.entries(config.imageModels.get())
-      const configuredSpeech = Object.entries(config.audioModels.get())
-      for (const [alias] of [...configured, ...configuredImages, ...configuredSpeech]) checkAlias(alias)
-      const [catalog, images, speech] = await Promise.all([
-        configured.length === 0 ? [] : client.catalog(lifetime.signal),
-        configuredImages.length === 0 ? [] : client.imageCatalog(lifetime.signal),
-        configuredSpeech.length === 0 ? [] : client.speechCatalog(lifetime.signal),
-      ])
-      // A configured id that its catalog lacks is skipped and named in `registrationError`; the others register.
-      const unavailable: string[] = []
-      const next: ModelEntry[] = [...configured.flatMap(([alias, id]) => {
-        const caps = catalog.find(row => row.id === id)
-        if (caps === undefined) { unavailable.push(`OpenRouter video model ${id} is unavailable or lacks supported output choices.`); return [] }
-        return tasks(caps).map(task => entry(alias, caps, task))
-      }), ...configuredImages.flatMap(([alias, id]) => {
-        const caps = images.find(row => row.id === id)
-        if (caps === undefined) { unavailable.push(`OpenRouter image model ${id} is unavailable or offers no raster output.`); return [] }
-        return [imageEntry(alias, caps)]
-      }), ...configuredSpeech.flatMap(([alias, id]) => {
-        const caps = speech.find(row => row.id === id)
-        if (caps === undefined) { unavailable.push(`OpenRouter speech model ${id} is unavailable or offers no speech endpoint.`); return [] }
-        return [speechEntry(alias, caps)]
-      })]
-      if (disposed || version !== revision) return
-      for (const candidate of next) {
-        const existing = ctx.dvModels.get(candidate)
-        if (existing !== undefined && !registered.includes(existing)) throw new Error('Another plugin already registered this OpenRouter model.')
-      }
-      for (const remove of removers) remove()
-      removers = next.map(candidate => ctx.dvModels.register(candidate))
-      registered = next
-      // Leaving `current` unset while an id is unavailable lets the next sync register it once its catalog offers it.
-      current = unavailable.length === 0 ? stamp : ''
-      registrationError = unavailable.length === 0 ? null : `${unavailable.join(' ')} Remove unavailable models in Video, image & audio APIs settings.`
-    } catch (error) {
-      if (!disposed && version === revision) {
-        for (const remove of removers) remove()
-        removers = []; registered = []; current = ''
-        registrationError = 'Could not register OpenRouter models. Check the saved key and catalog.'
-      }
-      throw error
-    }
+  const resolve = async (signal: AbortSignal): Promise<ModelSyncResult> => {
+    const configured = Object.entries(config.models.get())
+    const configuredImages = Object.entries(config.imageModels.get())
+    const configuredSpeech = Object.entries(config.audioModels.get())
+    for (const [alias] of [...configured, ...configuredImages, ...configuredSpeech]) assertModelAlias(alias, ALIAS_MESSAGE)
+    const [catalog, images, speech] = await Promise.all([
+      configured.length === 0 ? [] : client.catalog(signal),
+      configuredImages.length === 0 ? [] : client.imageCatalog(signal),
+      configuredSpeech.length === 0 ? [] : client.speechCatalog(signal),
+    ])
+    // A configured id that its catalog lacks is skipped and named in `unavailable`; the others register.
+    const unavailable: string[] = []
+    const groups: ModelGroup[] = [...configured.flatMap(([alias, id]) => {
+      const caps = catalog.find(row => row.id === id)
+      if (caps === undefined) { unavailable.push(`OpenRouter video model ${id} is unavailable or lacks supported output choices.`); return [] }
+      return [{ id: `video/${alias}`, stamp: JSON.stringify(caps), entries: () => tasks(caps).map(task => entry(alias, caps, task)) }]
+    }), ...configuredImages.flatMap(([alias, id]) => {
+      const caps = images.find(row => row.id === id)
+      if (caps === undefined) { unavailable.push(`OpenRouter image model ${id} is unavailable or offers no raster output.`); return [] }
+      return [{ id: `image/${alias}`, stamp: JSON.stringify(caps), entries: () => [imageEntry(alias, caps)] }]
+    }), ...configuredSpeech.flatMap(([alias, id]) => {
+      const caps = speech.find(row => row.id === id)
+      if (caps === undefined) { unavailable.push(`OpenRouter speech model ${id} is unavailable or offers no speech endpoint.`); return [] }
+      return [{ id: `audio/${alias}`, stamp: JSON.stringify(caps), entries: () => [speechEntry(alias, caps)] }]
+    })]
+    return { groups, unavailable }
   }
-  ctx.effect(() => async () => {
-    disposed = true; revision++; lifetime.abort()
-    await Promise.allSettled([...pending])
-    for (const remove of removers) remove()
-  }, 'OpenRouter models')
-  const update = (): void => {
-    const work = sync().catch(() => undefined)
-    pending.add(work)
-    void work.finally(() => { pending.delete(work) })
-  }
-  ctx.on('loader/volatile-update', update)
+  const { sync } = syncModelEntriesAsync(ctx, {
+    label: 'OpenRouter models',
+    conflict: 'Another plugin already registered this OpenRouter model.',
+    stamp: () => JSON.stringify([config.models.get(), config.imageModels.get(), config.audioModels.get()]),
+    resolve,
+    settled: (outcome) => {
+      registrationError = !outcome.ok ? 'Could not register OpenRouter models. Check the saved key and catalog.'
+        : outcome.unavailable.length === 0 ? null
+          : `${outcome.unavailable.join(' ')} Remove unavailable models under Models → OpenRouter.`
+    },
+  })
   ctx.inject(['connection'], scope => scope.effect(() => scope.connection.fetch.register({
     path: '/api/dv/openrouter/catalog', methods: ['GET'], requestBody: 'buffered',
     fetch: async (request) => {
@@ -419,9 +387,29 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       } catch { return Response.json({ error: 'Could not load OpenRouter models. Check the saved API key and connection.' }, { status: 502 }) }
     },
   }), 'OpenRouter model discovery'))
+  ctx.inject(['connection'], scope => scope.effect(() => scope.connection.fetch.register({
+    path: '/api/dv/openrouter/account', methods: ['GET'], requestBody: 'buffered',
+    fetch: async (request) => {
+      const headers = { 'Cache-Control': 'no-store' }
+      try {
+        const ref = config.credentialRef.get()
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(ref)) return Response.json({ status: 'unavailable' }, { headers })
+        const credential = await ctx.credentials.resolve(credentialRef(ref))
+        if (credential === undefined) return Response.json({ status: 'missing' }, { headers })
+        const account = new OpenRouterApi(config.baseUrl, () => Promise.resolve(credential.value), config.pollIntervalMs)
+        const { balanceUsd, label } = await account.account(request.signal)
+        return Response.json({
+          status: 'connected', balanceUsd, label: label?.includes(credential.value) === true ? null : label,
+        }, { headers })
+      } catch (error) {
+        const rejected = error instanceof OpenRouterHttpError && (error.status === 401 || error.status === 403)
+        return Response.json({ status: rejected ? 'rejected' : 'unavailable' }, { headers })
+      }
+    },
+  }), 'OpenRouter account status'))
   // A configured alias is checked without the network, so a bad alias in cordis.yml fails the load.
   for (const models of [config.models, config.imageModels, config.audioModels]) {
-    for (const alias of Object.keys(models.get())) checkAlias(alias)
+    for (const alias of Object.keys(models.get())) assertModelAlias(alias, ALIAS_MESSAGE)
   }
   // A failed boot catalog sync keeps discovery and settings updates registered so a saved key or catalog recovers it.
   await sync().catch((error: unknown) => {

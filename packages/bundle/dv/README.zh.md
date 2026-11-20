@@ -24,6 +24,8 @@ DreamVerse 预设还会扫描 `$DSH_HOME/dreamverse-skills`（默认 `~/.dsh/dre
 <a id="use-this-package"></a>
 ## 使用这个包
 
+在主机 profile 中配置 Reactor 模型别名和凭据，即可生成云端视频。参阅 [Reactor 配置](../../dv/reactor/README.zh.md)。
+
 ```sh
 scripts/video-harness/launch.sh web --trusted-host <public host>   # chat page on DV_PORT (default 8092)
 scripts/video-harness/launch.sh headless "给我一个这个人跳舞的视频" --session-id demo   # one task, printed result
@@ -58,7 +60,7 @@ patch 读取的环境变量：`DV_PROJECTS_FOLDER`（存放新对话和新项目
 <a id="model-experience"></a>
 ## 模型体验
 
-间接地，通过 bundle 挂载的工具、`@dv/project` 的 `dv:project` 提示词段落、项目状态消息和项目更新消息、`@dv/chat-references` 的提及上下文和 skill；bundle 本身不添加模型可见的文本。
+间接地，通过 bundle 挂载的工具、`@dv/project` 的 `dv:project` 提示词段落、项目状态消息和项目更新消息、`@dv/chat-references` 的提及上下文和 skill。配置的 DreamVerse 角色还会指导模型用所选模型的 `t2v` 条目直接渲染纯文本镜头，仅在用户要求或镜头需要参考素材时才准备图片。
 
 #### KV Cache 影响
 

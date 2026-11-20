@@ -63,6 +63,7 @@ A provider plugin implements one `ModelEntry` for each key. `ModelEntry<T>` take
 | Member | Contract |
 | --- | --- |
 | `description` | The strengths and weaknesses of the model. The agent and the user compare descriptions to choose between similar models. |
+| `hosting` | Required. `managed` when a hosted service operates the server that runs the model, `self-hosted` when the user does. `dv_models_list` and `dv_models_get` return the value. |
 | `facts()` | Resolves with the `RenderModelFacts` that the backend reports. Rejects when the backend cannot be reached. |
 | `schema()` | Resolves with a JSON description of the requests that the model accepts: the limits that the agent needs, such as durations, aspect ratios and resolutions, the inputs with their media types and counts, and the parameters in `extra`. The provider plugin defines this JSON. The catalog gives it to the agent unchanged. Rejects when the backend cannot be reached. |
 | `validateGenerationRequest(request)` | Resolves with each reason that the model cannot render a `RenderRequest`, one agent-facing sentence for each reason. The reasons include invalid `extra` values. Resolves with an empty list when the model can render the request. Rejects when the backend cannot be reached. |
@@ -92,7 +93,7 @@ A provider plugin implements one `ModelEntry` for each key. `ModelEntry<T>` take
 | `aspectRatios` | The aspect ratios that the model renders. The default comes first. |
 | `resolutions` | The resolutions that the model renders. The default comes first. |
 | `frameSizes` | The `[width, height]` in pixels, by aspect ratio and then by resolution. |
-| `minDurationSec`, `maxDurationSec` | The shortest and the longest shot, in whole seconds. |
+| `minDurationSec`, `maxDurationSec` | The shortest and longest shot, in seconds. |
 | `numFramesByDurationSec` | The frame count for each whole-second duration from the minimum to the maximum. |
 
 | `RenderStreamEvent` kind | Meaning |
@@ -100,7 +101,7 @@ A provider plugin implements one `ModelEntry` for each key. `ModelEntry<T>` take
 | `last_frame` | `png`: the last frame of the video as PNG bytes. The event comes before `video_start` or after the last `chunk`. |
 | `video_start` | `mime`: the media type of the video. |
 | `chunk` | `bytes`: the next part of the video bytes. |
-| `done` | `timings`: the backend's timings. Keys that end in `_ms` are milliseconds. Other keys are seconds. |
+| `done` | `timings`: the backend's timings. Keys that end in `_ms` are milliseconds. Other keys are seconds. `durationSec` is optional and reports the delivered video duration when the provider measures it. |
 
 `renderTimings(headers)` reads the `done` timings from the headers of a FastVideo or UniServe answer: `inference_s` from `x-inference-time-s`, and one `<stage>_s` per stage of the JSON object in `x-stage-durations`. An absent header, an `x-stage-durations` that is not JSON, and a value that is not a finite number add no timing, so the provider still yields the finished video.
 
@@ -151,7 +152,22 @@ None of these changes edits `@dv/models`:
 
 **No compatibility code.** `@dv/models` has one key format and one entry type. It contains no aliases, adapters, or fallback code for other catalog formats.
 
-The repository skill [`dv-add-model-provider`](../../../.agents/skills/dv-add-model-provider/SKILL.md) gives the procedures and the checks.
+The [provider contribution guide](../../../docs/cookbook/adding-a-dreamverse-provider.md) is the procedure for contributors. The repository skill [`dv-add-model-provider`](../../../.agents/skills/dv-add-model-provider/SKILL.md) gives the agent procedure and the checks.
+
+<a id="share-model-registration-code"></a>
+### Share model registration code
+
+Provider plugins that map configured aliases to entries use these exports instead of their own registration loops. Call them from `apply`; the registrations are effects of the calling plugin, so unloading the plugin disposes every entry.
+
+| Export | Use |
+| --- | --- |
+| `assertModelAlias(alias, message)` | Throws `message` for an alias that is not 1 to 120 lowercase letters, digits and hyphens that start with a letter or digit (`MODEL_ALIAS_PATTERN`). Call it for each key of the `models` configuration so a bad alias fails the load. |
+| `ModelGroup` | The entries of one configured model: an `id` such as the alias, a `stamp` string that changes when the entries must be rebuilt, and `entries()`, which builds them. |
+| `syncModelEntries(ctx, { label, conflict, groups })` | For a provider that resolves its models from configuration alone. It registers `groups()` during the call and again after each `loader/volatile-update`. A group whose stamp is unchanged keeps its entries, and a changed or removed group is disposed. It returns a function that runs one sync. A throw from `groups()` or a key that another plugin registered leaves the registered entries unchanged: the first call fails the plugin load, and later calls reject in the event emitter. |
+| `syncModelEntriesAsync(ctx, { label, conflict, stamp, resolve, settled })` | For a provider that reads a remote catalog to resolve its models. `resolve(signal)` returns the groups and one sentence for each configured model that its catalog lacks. Those models are skipped, the others register, and the next sync retries. A sync that a newer one superseded drops its result. A failed current sync disposes every entry. A volatile update never rejects, and the failure reaches `settled`. Unloading aborts `signal` and waits for the running syncs. It returns `{ sync }` for the first sync during `apply` and for discovery routes. |
+| `createModelEntryRegistry(dvModels, conflict)` | The registry under both syncs, for a provider that needs its own wiring. `replace(groups)` and `clear()` do not register an effect, so the caller disposes it. |
+
+[`@dv/reactor`](../reactor/README.md) uses `syncModelEntries`, and [`@dv/openrouter`](../openrouter/README.md) uses `syncModelEntriesAsync`.
 
 -----
 
@@ -184,6 +200,7 @@ While the DSH skill registry (`skills`) is mounted, the service registers the ru
 ## Further Exploration
 
 - [`@dv/fastvideo`](../fastvideo/README.md): the provider plugin to use as the example.
+- [Provider contribution guide](../../../docs/cookbook/adding-a-dreamverse-provider.md): who can add a provider, which packages to reuse, and how to maintain it.
 - [`dv-add-model-provider`](../../../.agents/skills/dv-add-model-provider/SKILL.md): the procedures to add a provider, a model, or a server.
 - [`@dv/shot-render`](../shot-render/README.md): the consumer that renders a shot with an entry.
 - [`@dv/bundle`](../../bundle/dv/README.md): the rows `dv-models` and `dv-fastvideo`.
@@ -199,12 +216,12 @@ Duration-based cloud providers may omit `frameSizes` and `numFramesByDurationSec
 
 #### What the model sees
 
-While the DSH tool registry is mounted, the agent sees the tool `dv_models_list` with the description below. The tool has three optional string arguments: `modality`, `task` and `provider`. The generated tool catalog does not list DreamVerse tools, so this section quotes the description and the argument descriptions. A call returns one text block with indented JSON: an array of `modality`, `task`, `provider`, `model` and `description` for each matching entry, with `prompt_skill`, the name of the entry's prompt skill, when the entry has one. This package adds nothing to the system prompt. The agent reads the catalog only through the two tools and the `video-model-selection` skill.
+While the DSH tool registry is mounted, the agent sees the tool `dv_models_list` with the description below. The tool has three optional string arguments: `modality`, `task` and `provider`. The generated tool catalog does not list DreamVerse tools, so this section quotes the description and the argument descriptions. A call returns one text block with indented JSON: an array of `modality`, `task`, `provider`, `model`, `hosting` and `description` for each matching entry, with `display_name`, `worker_selection` and `prompt_skill` when the entry supplies them. This package adds nothing to the system prompt. The agent reads the catalog only through the two tools and the `video-model-selection` skill.
 
 ##### dv_models_list description
 
 ```markdown
-List the models you can generate with, each with its key (modality, task, provider, model), its description and the name of its prompt skill, if it has one.
+List the models you can generate with, each with its key (modality, task, provider, model), its description, its hosting, and its display name, worker selection and prompt skill when available.
 ```
 
 ##### dv_models_list argument descriptions

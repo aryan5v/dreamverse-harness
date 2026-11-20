@@ -23,12 +23,14 @@ Configure OpenRouter cloud video, image and speech models for the DreamVerse cat
 <a id="use-this-package"></a>
 ## Use this package
 
-The DreamVerse bundle mounts `dv-openrouter` with no configured models. Use Video, image & audio APIs settings to save a key and enable models. The operator LLM continues to use the existing Models settings and pi-ai OpenRouter adapter.
+The DreamVerse bundle mounts `dv-openrouter` with no configured models. Use the OpenRouter card in **Settings → Models** to save a key. Check models in the **Generation models** table to enable them. The operator LLM continues to use the existing Models settings and pi-ai OpenRouter adapter.
 
 `models` maps a local alias to an OpenRouter video model ID, `imageModels` maps a local alias to an OpenRouter image model ID, and `audioModels` maps a local alias to an OpenRouter speech model ID; aliases use lowercase letters, numbers and hyphens. `credentialRef` defaults to `OPENROUTER_API_KEY`; it names the existing credential store. `baseUrl` defaults to `https://openrouter.ai/api/v1/`. `pollIntervalMs` defaults to 5000.
 
 Only configured models appear in the pickers. T2V is available for compatible catalog entries; REF2V is registered when the models catalog lists image input for the model, and I2V and FL2V when the video catalog advertises their endpoint images. Each image model is registered for T2I, so `image.generate` (`dv_image_generate`) can use it, and each speech model for T2A, so `audio.generate` (`dv_audio_generate`) can use it. API models require no local weight download or GPU load.
 
+
+`GET /api/dv/openrouter/account` checks the host's configured key without generating media. It returns `missing`, `rejected`, `unavailable`, or `connected` in `status`. A connected response includes the key's `label` when available and `balanceUsd`. The balance comes from OpenRouter's account credits and is null when the key cannot read them.
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
@@ -39,13 +41,16 @@ The image provider reads `images/models` and keeps rows whose output modalities 
 
 The speech provider reads `models?output_modalities=speech` and keeps rows whose output modalities include `speech` and whose `endpoints`, when listed, include `/api/v1/audio/speech`, with the voices in `supported_voices`. A speech call's prompt is the plain text to speak. Its `extra` takes `voice` and `instructions`: when the catalog lists voices, `voice` is required and must be one of them; otherwise it is optional and the provider uses its default. Any other `extra` key is refused before submission. The provider submits one `POST audio/speech` with `response_format: pcm` for `google/` and `heygen/` models, which OpenRouter serves only as PCM, and `mp3` for the others (MiniMax serves only MP3), and converts the answer to a WAV clip with the shared ffmpeg service, reading raw `audio/pcm` as 24 kHz mono 16-bit; the clip's duration comes from ffprobe.
 
-Duration-based requests omit unknown pixel dimensions and frame counts. Native FastVideo and UniServe retain their configured frame geometry. Empty configuration makes no provider request; volatile model changes update the existing catalog. A configured alias that is not lowercase letters, digits and hyphens fails the load. If the catalog request or model registration fails at startup, the plugin logs a warning and keeps its catalog route and settings listener; the next catalog discovery or model change retries registration. A configured model id that its catalog does not offer is skipped while the other configured models register; the catalog route still answers the catalogs and names each skipped id in its `error` field, which the settings page shows beside the catalogs; the settings page also lists each skipped id as an unavailable row with its Remove action, and the next catalog discovery or model change retries the skipped ids.
+Duration-based requests omit unknown pixel dimensions and frame counts. Native FastVideo and UniServe retain their configured frame geometry. Empty configuration makes no provider request; volatile model changes update the existing catalog. A configured alias that is not lowercase letters, digits and hyphens fails the load. If the catalog request or model registration fails at startup, the plugin logs a warning and keeps its catalog route and settings listener; the next catalog discovery or model change retries registration. A configured model id that its catalog does not offer is skipped while the other configured models register; the catalog route still answers the catalogs and names each skipped id in its `error` field, which the settings page shows beside the catalogs; the settings page also lists each skipped id as an unavailable row that can be unchecked, and the next catalog discovery or model change retries the skipped ids.
 
 
 <a id="further-exploration"></a>
 ## Further Exploration
 
 See the [OpenRouter video API guide](https://openrouter.ai/docs/guides/overview/multimodal/video-generation), the [image generation guide](https://openrouter.ai/docs/guides/overview/multimodal/image-generation) and the [text-to-speech guide](https://openrouter.ai/docs/features/multimodal/tts).
+
+- [OpenRouter maintenance guide](../../../docs/cookbook/providers/openrouter.md)
+- [Contribute a DreamVerse provider](../../../docs/cookbook/adding-a-dreamverse-provider.md)
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -54,7 +59,7 @@ See the [OpenRouter video API guide](https://openrouter.ai/docs/guides/overview/
 
 #### What the model sees
 
-The agent sees provider `openrouter`, configured aliases, supported task schemas, exact duration choices, the image models' `extra` choices, the speech models' voices, the cloud cancellation limitation, and that video models take no audio or video references. While a video model is configured and the skill registry is mounted, the skill catalog lists the prompt skill `openrouter-video-prompting` with the description `Prompt rules for OpenRouter cloud video models, tasks t2v, ref2v, i2v and fl2v. OpenRouter video models take no audio or video references for now.`, so the agent knows the limit without listing models; loading the skill returns [`skills/openrouter-video-prompting.md`](skills/openrouter-video-prompting.md). Prompts contain endpoint labels rather than internal asset citation URLs.
+The agent sees provider `openrouter`, configured aliases, supported task schemas, exact duration choices, the image models' `extra` choices, the speech models' voices, the cloud cancellation limitation, and that video models take no audio or video references. While a video model is configured and the skill registry is mounted, the skill catalog lists the prompt skill `openrouter-video-prompting` with the description `Prompt rules for OpenRouter cloud video models, tasks t2v, ref2v, i2v and fl2v. OpenRouter video models take no audio or video references for now.`, so the agent knows the limit without listing models; loading the skill returns [`skills/openrouter-video-prompting.md`](skills/openrouter-video-prompting.md). Prompts contain endpoint labels rather than internal asset citation URLs. The catalog reports `hosting: managed`.
 
 #### Token effect
 

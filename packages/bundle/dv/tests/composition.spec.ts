@@ -74,7 +74,7 @@ describe('DreamVerse bundle composition', () => {
     },
     load: async () => { loaded = true }, unload: async () => { loaded = false } }
     ctx.dvModels.register(Object.create(fasth3, { model: { value: 'pika' }, provider: { value: 'fastvideo' }, runtime: { value: runtime }, workerRouting: { value: true } }) as typeof fasth3)
-    const image = (model: string) => ({ modality: 'image', task: 't2i', provider: 'openrouter', model, description: model,
+    const image = (model: string) => ({ modality: 'image', task: 't2i', provider: 'openrouter', hosting: 'managed', model, description: model,
       facts: async () => ({ modelId: model }), schema: async () => ({}), validateGenerationRequest: async () => [],
       render: async () => { throw new Error('not rendered in this test') } }) as Parameters<typeof ctx.dvModels.register>[0]
     ctx.dvModels.register(image('flux'))
@@ -108,13 +108,21 @@ describe('DreamVerse bundle composition', () => {
     expect(loaded).toBe(false)
     expect((await call('dv_models_select', { modality: 'video', provider: '', model: '', reason: 'Let the operator choose' })).isError).toBeFalsy()
     expect(ctx.dvProject.getState(project).components.models).toEqual({ conversations: { anonymous: { image: { provider: 'openrouter', model: 'flux' } } } })
-    const definitions = ctx.tools.schemas().filter(tool => ['dv_models_select', 'dv_models_load', 'dv_models_unload', 'dv_models_status'].includes(tool.name))
+    const definitions = ctx.tools.schemas().filter(tool =>
+      ['dv_models_list', 'dv_models_select', 'dv_models_load', 'dv_models_unload', 'dv_models_status'].includes(tool.name))
     await expect(`${JSON.stringify(definitions, null, 2)}\n`).toMatchFileSnapshot('./expected/tools/model-controls.json')
   })
   it('mounts the reference nouns in the order character, location, style, on the host and in the browser', () => {
     const ids = insertRows().map(row => row.id)
     const nouns = ids.filter(id => /^dv-(ui-)?(character|location|style)$/.test(id))
     expect(nouns).toEqual(['dv-character', 'dv-location', 'dv-style', 'dv-ui-character', 'dv-ui-location', 'dv-ui-style'])
+  })
+
+  it('pins the definition of the shot render tool that the agent sees', async () => {
+    const { ctx, dispose } = await bootBundle()
+    disposers.push(dispose)
+    const tools = ctx.tools.schemas().filter(tool => tool.name === 'dv_shot_render')
+    await expect(`${JSON.stringify(tools, null, 2)}\n`).toMatchFileSnapshot('./expected/tools/shot-render.json')
   })
 
   it('pins the definitions of the text node tools that the agent sees', async () => {
@@ -127,7 +135,7 @@ describe('DreamVerse bundle composition', () => {
   it('boots the bundle rows through the Loader and turns a model tool call into a durable record', async () => {
     const rows = bundleRows()
     expect(rows.map(row => row.id)).toEqual(expect.arrayContaining([
-      'dv-openrouter', 'dv-models', 'dv-fastvideo', 'dv-uniserve', 'dv-project', 'dv-text-node', 'dv-shot-render', 'dv-timeline', 'dv-workflow-story', 'dv-chat-references', 'dv-api',
+      'dv-openrouter', 'dv-reactor', 'dv-models', 'dv-fastvideo', 'dv-uniserve', 'dv-project', 'dv-text-node', 'dv-shot-render', 'dv-timeline', 'dv-workflow-story', 'dv-chat-references', 'dv-api',
       'dv-sglang-diffusion', 'dv-image-generate', 'dv-sglang-omni', 'dv-audio-generate', 'dv-vllm-omni',
     ]))
     const { ctx, dir, services, dispose } = await bootBundle()
@@ -146,6 +154,7 @@ describe('DreamVerse bundle composition', () => {
     expect(ctx.get('tools')?.get('dv_image_generate')).toBeDefined()
     // The FastVideo row is disabled and keeps one server per task of fasth3, with valid model facts, for a deployment
     // that mounts it.
+    expect(rows.find(row => row.id === 'dv-reactor')?.config).toEqual({ models: {} })
     expect(fastVideo.mounted).toBe(false)
     const fastVideoRow = rows.find(row => row.id === 'dv-fastvideo')
     expect(fastVideoRow).toMatchObject({
