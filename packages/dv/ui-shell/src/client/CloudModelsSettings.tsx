@@ -192,13 +192,17 @@ export function Connections({ providers: registry, connections, page }: Injected
   }, [drawer])
   const generation = providers.filter(({ provider }) => accounts.get(provider.id)?.status === 'connected')
   const rows = page?.rows ?? []
-  const llm = rows.filter(row => row.entry.active && providerUsable(row))
+  // A generation provider owns its own settings profile here, so its stock LLM row and editor are left out: the chat
+  // option on its card is the only writer of that profile.
+  const generationIds = new Set(providers.map(({ provider }) => provider.id))
+  const llm = rows.filter(row => row.entry.active && providerUsable(row) && !generationIds.has(row.entry.provider))
   const editing = drawer?.kind === 'llm' ? rows.find(row => row.entry.provider === drawer.provider) : undefined
   const editingNamespace = editing === undefined ? undefined : page?.namespaces.get(editing.entry.settingsNs)
   const piAi = page?.namespaces.get('llm-pi-ai')
   const protocols = piAi === undefined || page === undefined ? [] : protocolChoices(piAi, page.schema)
   const needle = picking.trim().toLowerCase()
   const offered = rows.filter(row => (mediaFilter === '' || mediaFilter === 'llm')
+    && !generationIds.has(row.entry.provider)
     && `${row.entry.displayName} ${row.entry.provider}`.toLowerCase().includes(needle))
   // The generation providers that serve the chosen media type, or can serve chat when LLM is chosen.
   const offeredGeneration = providers.filter(({ provider }) => (mediaFilter === '' ? true

@@ -29,6 +29,31 @@ export function routableRoutes(
   })
 }
 
+/** A provider contribution that can report whether its saved key serves chat. */
+export interface ChatRouteContribution {
+  id: string
+  operatorEnabled?: (this: void) => boolean
+}
+
+/**
+ * Keep the routes of providers that report their saved key does not serve chat out of the picker, whichever profile
+ * scheme registered them; the deployment default stays, because the agent already runs on it.
+ * @param routes - the route ids the join offers.
+ * @param contributions - the registered provider contributions.
+ * @param defaultProvider - the deployment default.
+ * @returns the route ids to offer, in the order they were given.
+ */
+export function withoutOffChat(
+  routes: readonly string[],
+  contributions: readonly ChatRouteContribution[],
+  defaultProvider: string,
+): string[] {
+  const off = new Set(contributions
+    .filter(entry => entry.operatorEnabled !== undefined && !entry.operatorEnabled())
+    .map(entry => entry.id))
+  return routes.filter(route => route === defaultProvider || !off.has(route))
+}
+
 /**
  * The key reference one provider profile names.
  * @param profile - the profile object stored at the provider's settings path.
@@ -70,16 +95,15 @@ export async function settledSettings(
   const first = form.getSnapshot()
   if (first.status !== 'loading') return first
   return await new Promise((resolve) => {
-    let stop = (): void => {}
-    const finish = (snapshot: ConfigFormSnapshot<unknown> | undefined): void => {
+    const settle = (snapshot: ConfigFormSnapshot<unknown> | undefined): void => {
       clearTimeout(timer)
       stop()
       resolve(snapshot)
     }
-    const timer = setTimeout(() => { finish(undefined) }, SETTINGS_WAIT_MS)
-    stop = form.subscribe(() => {
+    const stop = form.subscribe(() => {
       const next = form.getSnapshot()
-      if (next.status !== 'loading') finish(next)
+      if (next.status !== 'loading') settle(next)
     })
+    const timer = setTimeout(() => { settle(undefined) }, SETTINGS_WAIT_MS)
   })
 }

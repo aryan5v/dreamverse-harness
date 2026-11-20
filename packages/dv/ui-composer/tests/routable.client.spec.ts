@@ -1,7 +1,7 @@
 /** The chat picker offers a route only once a profile configures it and the key that profile names is stored. */
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
-import { apiKeyEnvAt, profileAt, routableRoutes, settledSettings } from '../src/client/routable.ts'
+import { apiKeyEnvAt, profileAt, routableRoutes, settledSettings, withoutOffChat } from '../src/client/routable.ts'
 
 const credentials = { TEAM_KEY: { configured: true }, EMPTY_KEY: { configured: false } }
 
@@ -49,6 +49,17 @@ it('hides an unconfigured route and one whose named credential is not stored, wh
   )).toEqual(['default', 'keyless'])
 })
 
+it('drops the routes of providers whose own chat state says their key does not serve chat', () => {
+  expect(withoutOffChat(
+    ['default', 'openrouter', 'openai', 'custom'],
+    [{ id: 'openrouter', operatorEnabled: () => false }, { id: 'openai', operatorEnabled: () => true },
+      { id: 'custom' }],
+    'default',
+  )).toEqual(['default', 'openai', 'custom'])
+  expect(withoutOffChat(['openrouter'], [{ id: 'openrouter', operatorEnabled: () => false }], 'openrouter'))
+    .toEqual(['openrouter'])
+})
+
 it('reads a key reference only from a profile that names one', () => {
   expect(apiKeyEnvAt(undefined)).toBeUndefined()
   expect(apiKeyEnvAt('TEAM_KEY')).toBeUndefined()
@@ -76,6 +87,16 @@ it('reads a settled form at once and subscribes only while a load is pending', a
   expect(loading.listening()).toBe(1)
   loading.settle(snapshot('ready', { providers: {} }))
   expect(await pending).toEqual(snapshot('ready', { providers: {} }))
+  expect(loading.listening()).toBe(0)
+})
+
+it('waits through a notification that still reports loading', async () => {
+  const loading = fakeForm(snapshot('loading'))
+  const pending = settledSettings(loading)
+  loading.settle(snapshot('loading'))
+  expect(loading.listening()).toBe(1)
+  loading.settle(snapshot('ready', { providers: { openai: {} } }))
+  expect(await pending).toEqual(snapshot('ready', { providers: { openai: {} } }))
   expect(loading.listening()).toBe(0)
 })
 
