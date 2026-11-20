@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Adds a Hardware page to Settings. Expand a device to manage the generation models installed on it.
+Adds a Hardware page to Settings. Expand a device to manage the generation models installed on it. Hosted model APIs are managed under **Settings → Models**, not here.
 
 Hardware settings saves worker coordinates through revision-fenced Harness settings. API keys are written through the existing credential service; saved values are never read back into the editor. Adding hardware starts with a display name and a local FastVideo server, an existing SSH alias, or a compatible API endpoint, including hosted GPU services. The address is resolved from the Harness host, not from the browser. The stable worker ID is generated from the name. Advanced fields expose the ID, credential reference, and remote API host/port.
 

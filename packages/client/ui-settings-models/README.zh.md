@@ -53,7 +53,7 @@ Host 配置 `credentialOnboarding` 默认为 `true`。Electron preload 标记会
 
 ### 扩展 slot
 
-本分区为仓库外分发的插件声明三个席位，类型定义在 [`src/client/slot-contract.ts`](src/client/slot-contract.ts) 并从 `./client` 导出。`settings.models.provider-card`（keyed）渲染在每张展示目录行的卡片内部——已保存行的卡片、其首次运行 setup 形态、以及「添加提供商」草稿卡——以 `entryKey = settingsNs` 分发，owner props 携带该行的 `ConfigurableProviderView`、其 configured 状态与已确认的 api-key 凭据状态，因此以某适配器家族的 namespace 注册一次即可收到该家族的全部卡片，含手工声明的路由；手工声明的草稿卡尚无目录行，保存之前不分发。`settings.models.header`（list）渲染在页面简介之后，注册后即接管提供商列表：本分区自己的行与新增控件停止渲染，owner props 携带该合并结果，以及删除用户新增 profile（连同本页为其管理的凭据）的 `remove` 写入。`settings.models.footer`（list）渲染在行列表与新增控件之后。注册方通过 `ctx.slots.inject` 激活，并以 type-only import 引入本包 `/client` 入口；没有注册方时三个席位均不渲染任何内容。
+本分区为仓库外分发的插件声明三个席位，类型定义在 [`src/client/slot-contract.ts`](src/client/slot-contract.ts) 并从 `./client` 导出。`settings.models.provider-card`（keyed）渲染在每张展示目录行的卡片内部——已保存行的卡片、其首次运行 setup 形态、以及「添加提供商」草稿卡——以 `entryKey = settingsNs` 分发，owner props 携带该行的 `ConfigurableProviderView`、其 configured 状态与已确认的 api-key 凭据状态，因此以某适配器家族的 namespace 注册一次即可收到该家族的全部卡片，含手工声明的路由；手工声明的草稿卡尚无目录行，保存之前不分发。`settings.models.header`（list）渲染在页面简介之后，注册后即接管提供商列表：本分区自己的行与新增控件停止渲染，owner props 携带该合并结果，以及删除用户新增 profile（连同本页为其管理的凭据）的 `remove` 写入。`settings.models.footer`（list）渲染在行列表与新增控件之后。注册方通过 `ctx.slots.inject` 激活，并以 type-only import 引入本包 `/client` 入口；没有注册方时三个席位均不渲染任何内容。自行绘制行的头部注册方可从 `./client` 复用 `CustomProviderCard`、`ProviderEditor`、`protocolChoices` 与 `providerUsable`；仅当本分区自己绘制行时才显示「LLM 提供商」小标题。
 
 -----
 
@@ -94,7 +94,7 @@ Host 配置 `credentialOnboarding` 默认为 `true`。Electron preload 标记会
 
 -----
 
-`settings.models.sign-in` 插槽让账号登录在凭证编辑器之前提供选择；没有贡献者时直接显示编辑器。关闭账号选择弹窗会结束整个引导步骤。从账号菜单显式重新打开时，即使已有提供者配置，也会进入同一个编辑器。
+`settings.models.sign-in` 插槽让账号登录在首次运行开始时提供选择：有贡献者时先渲染其登录弹窗，其中的 API 密钥选项（`useApiKey`）会继续进入上文的提供商选择弹窗，关闭它会结束整个引导步骤；没有贡献者时直接显示提供商选择弹窗。从账号菜单显式重新打开时会跳过该插槽，即使已有提供者配置，也会进入官方 DeepSeek 凭据编辑器。
 
 <a id="model-experience"></a>
 ## 模型体验

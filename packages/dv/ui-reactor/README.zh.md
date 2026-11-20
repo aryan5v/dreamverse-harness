@@ -22,12 +22,12 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用此包
 
-DreamVerse Web profile 在 **设置 → 模型** 中提供 Reactor 卡片和模型目录。有关主机 SDK 和模型配置，请参阅 [供应商配置](../reactor/README.zh.md)。
+DreamVerse Web profile 在 **设置 → 模型** 中提供 Reactor 行。选择 **你的连接** 下的 **管理 Reactor** 可保存、检查或移除密钥，并在 **模型目录** 表中开启 Reactor 视频模型。Reactor 会先检查密钥（`POST /api/dv/reactor/account`）再保存。主机 SDK 和模型 profile 见 [提供商配置](../reactor/README.zh.md)。本包是需要密钥的第一方提供商设置卡片的模板，见 [提供商指南](../../../docs/cookbook/adding-a-dreamverse-provider.zh.md#settings-card)。
 
 <a id="understand-the-implementation"></a>
 ## 了解实现
 
-浏览器通过凭据服务发送密钥。页面从主机读取账户可用模型，并通过设置表单仅保存模型选择。
+浏览器先把候选密钥发给账户路由检查，Reactor 接受后再通过凭据服务保存；**移除密钥** 通过同一服务删除它。页面从主机读取账户可用模型，并通过设置表单仅保存模型选择。目录返回 401 表示密钥被拒绝，返回 503 表示缺少密钥，所有提供商一致。
 
 <a id="model-experience"></a>
 ## 模型体验

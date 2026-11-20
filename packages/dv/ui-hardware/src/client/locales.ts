@@ -45,7 +45,7 @@ export const en = {
   busyHelp: 'This device is in use. Model changes are available after its current work finishes.',
   loadPending: 'Changing model…', libraryHelp: 'Explore the five NVFP4 variants. Installation is available only when the selected backend supports it.',
   bringWeights: 'Use your own weights', bringWeightsHelp: 'Register a compatible Hugging Face repository or local weight path with FastVideo on the selected device. Local paths refer to that device, not this browser.',
-  bringApi: 'Connect a model API', bringApiHelp: 'Add its compatible generation endpoint in Hardware and save its API key there. Manage OpenRouter and Reactor under Models.',
+  bringApi: 'Connect a model API', bringApiHelp: 'Add its compatible generation endpoint in Hardware and save its API key there. Manage cloud providers in Settings → Models.',
   compatibleHelp: 'Connections use the FastVideo API. A generic provider API requires its own Harness generation adapter.',
   refreshFailed: 'Could not refresh models. Check the selected device and try again.',
 } as const
@@ -75,7 +75,7 @@ export const zh: Copy = {
   installed: '已安装', notInstalled: '未安装', apiModel: '已配置 API 模型', unknown: '状态不可用', load: '加载', unload: '卸载', modelWorker: '工作节点',
   catalog: '模型下载', catalogIntro: 'FastVideo NVFP4 模型套件包含五个共享组件的变体。下载在选定工作节点上进行，不会在浏览器中下载。',
   download: '下载', source: '模型卡', unsupportedDownload: '此工作节点尚未提供模型下载。',
-  custom: '使用其他模型', customHelp: '使用后端已安装模型目录，或配置生成服务 API。在“模型”页面中管理 OpenRouter 和 Reactor。',
+  custom: '使用其他模型', customHelp: '使用后端已安装模型目录，或配置生成服务 API。在“设置 → 模型”中管理云端提供商。',
   selectWorker: '选择工作节点', backendRequired: '请先在硬件设置中连接兼容工作节点。', actionDone: '模型操作已完成。',
   local: '本机', localHelp: 'GPU 和 FastVideo 服务运行在托管此 Harness 的机器上。',
   apiHelp: '连接已有的 FastVideo HTTP 端点，包括兼容的 Modal 或 RunPod 部署。服务商账户密钥本身不是端点。',

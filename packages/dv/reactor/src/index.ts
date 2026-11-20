@@ -9,12 +9,13 @@ import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { credentialRef, isCredentialRefName } from '@deepseek-ai/dsh-credentials'
 import type {} from '@dv/asset-pool'
 import type {} from '@dv/ffmpeg'
-import { assertModelAlias, syncModelEntries, type ModelEntry, type RenderModelFacts, type RenderRequest, type RenderStreamEvent } from '@dv/models'
+import { assertModelAlias, catalogFailure, catalogMissingKey, registerAccountRoute, syncModelEntries, type ModelEntry, type RenderModelFacts, type RenderRequest, type RenderStreamEvent } from '@dv/models'
 import { citedAsset, citedInput, replacePromptCitations, type AssetId } from '@dv/project'
-import { checkAccess, listModels, ReactorCatalogError } from './catalog.ts'
+import { checkAccess, listModels, ReactorCatalogError, readBalance } from './catalog.ts'
 import { capture, type Upload } from './client.ts'
 import type { ReactorModelConfig } from './types.ts'
 import { profileFor, profiles, type ProfileName } from './profiles.ts'
+import { checkSdk } from './setup.ts'
 
 type ModelConfig = Omit<ReactorModelConfig, 'profile' | 'durationsSec'> & {
   /** Bundled Reactor command schema for this alias. */
@@ -101,6 +102,11 @@ function modelFacts(alias: string, config: ModelConfig, timeoutSeconds: number):
   }
 }
 
+/** Whether Reactor's catalog refused the key with HTTP 401 or 403. */
+function isKeyRefused(error: unknown): boolean {
+  return error instanceof ReactorCatalogError && (error.status === 401 || error.status === 403)
+}
+
 function apiOrigin(value: string): string {
   const url = URL.canParse(value) ? new URL(value) : undefined
   if (url?.protocol !== 'https:' || url.pathname !== '/' || url.search !== '' || url.hash !== '' || url.username !== '' || url.password !== '') {
@@ -127,7 +133,7 @@ export function apply(ctx: Context, config: Config): void {
     path: '/api/dv/reactor/catalog', methods: ['GET'], requestBody: 'buffered',
     fetch: async (request) => {
       const credential = await scope.credentials.resolve(keyRef)
-      if (credential === undefined) return Response.json({ error: 'Set the Reactor API key on the host.' }, { status: 503 })
+      if (credential === undefined) return catalogMissingKey('Reactor')
       const signal = AbortSignal.any([request.signal, AbortSignal.timeout(config.catalogTimeoutSeconds * 1000)])
       try {
         const models = await listModels(credential.value, signal, apiBaseUrl)
@@ -140,29 +146,20 @@ export function apply(ctx: Context, config: Config): void {
           }
         }) })
       } catch (error) {
-        if (error instanceof ReactorCatalogError && (error.status === 401 || error.status === 403)) {
-          return Response.json({ error: 'Reactor rejected the API key.' }, { status: 401 })
-        }
-        return Response.json({ error: 'Could not load Reactor models. Check the API key and connection.' }, { status: 502 })
+        return catalogFailure('Reactor', isKeyRefused(error))
       }
     },
   }), 'Reactor model discovery'))
-  ctx.inject(['connection'], scope => scope.effect(() => scope.connection.fetch.register({
-    path: '/api/dv/reactor/account', methods: ['GET'], requestBody: 'buffered',
-    fetch: async (request) => {
-      const headers = { 'Cache-Control': 'no-store' }
-      try {
-        const credential = await scope.credentials.resolve(keyRef)
-        if (credential === undefined) return Response.json({ status: 'missing' }, { headers })
-        const signal = AbortSignal.any([request.signal, AbortSignal.timeout(config.catalogTimeoutSeconds * 1000)])
-        await checkAccess(credential.value, signal, apiBaseUrl)
-        return Response.json({ status: 'connected', balanceUsd: null, label: null }, { headers })
-      } catch (error) {
-        const rejected = error instanceof ReactorCatalogError && (error.status === 401 || error.status === 403)
-        return Response.json({ status: rejected ? 'rejected' : 'unavailable' }, { headers })
-      }
+  registerAccountRoute(ctx, {
+    provider: 'reactor', description: 'Reactor account status', timeoutSeconds: config.catalogTimeoutSeconds,
+    savedKey: async () => (await ctx.credentials.resolve(keyRef))?.value,
+    check: async (key, signal) => {
+      await checkSdk(config.pythonPath, signal, config.catalogTimeoutSeconds)
+      await checkAccess(key, signal, apiBaseUrl)
+      return { ...await readBalance(key, signal, apiBaseUrl), limitRemainingUsd: null }
     },
-  }), 'Reactor account status'))
+    isRejected: isKeyRefused,
+  })
   const lifetime = new AbortController()
   const active = new Set<Promise<unknown>>()
   ctx.effect(() => async () => {

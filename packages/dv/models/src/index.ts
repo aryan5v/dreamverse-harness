@@ -20,6 +20,7 @@ import z from '@deepseek-ai/schemastery'
 import type { ModalityId, ModelEntry, ModelFilter, ModelKey, TaskId } from './types.ts'
 import { installModelControls } from './selection.ts'
 export { assertModelSelection, modelSelection } from './selection.ts'
+export * from './account.ts'
 export * from './sync.ts'
 
 export type * from './types.ts'
@@ -37,16 +38,23 @@ export interface Config {
   catalogSchemaTimeoutMs: number
   /**
    * The model a new conversation starts on, by modality, as `{ provider, model }`. The DreamVerse composer records it
-   * as the conversation's `models.select` choice when a conversation without choices opens; an absent modality starts
-   * on Auto.
+   * as the conversation's `models.select` choice when a conversation without choices opens in the client UI; sessions
+   * created through the SDK or headless runs do not apply it. An absent modality starts on Auto.
    */
   defaults: Volatile<Record<string, { provider: string; model: string }>>
 }
 
-/** Loader validation. */
+/** The model one media type starts on. */
+const Choice: z<{ provider: string; model: string }> = z.object({ provider: z.string().required(), model: z.string().required() })
+
+/**
+ * Loader validation. It has no `z<Config>` annotation because `defaults` is volatile, so a change applies without
+ * reloading the plugin, and schemastery's volatile schema type is not assignable to `Volatile<Record<...>>`; the other
+ * plugins with volatile fields (`dv-openrouter`, `dv-reactor`) are declared the same way.
+ */
 export const Config = z.object({
   catalogSchemaTimeoutMs: z.natural().min(1).default(5000),
-  defaults: z.dict(z.object({ provider: z.string().required(), model: z.string().required() })).default({}).volatile(),
+  defaults: z.dict(Choice).default({}).volatile(),
 })
 
 /** The fields of a model key. */

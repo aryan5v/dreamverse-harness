@@ -28,6 +28,8 @@ export interface PickerItem {
   /** The {@link PickerFilter} id this row belongs to, when the popover has filters. */
   filter?: string
   label: string
+  /** The provider's display name, shown beside the label so equal model names stay distinguishable. */
+  note?: string
   /** Short text at the row's end, such as the media type. */
   tag?: string
   selected: boolean
@@ -41,8 +43,6 @@ export interface PickerItem {
 export interface PickerPopoverProps {
   /** Accessible name of the trigger and the dialog. */
   label: string
-  /** Short kind shown before the value in the trigger, such as `Generate`. */
-  kind?: string
   /** The trigger's value text. */
   value: string
   valueIcon?: ReactNode
@@ -81,7 +81,7 @@ type DetailSide = 'right' | 'left' | 'stack'
  * @returns the trigger and the portal popover.
  */
 export function PickerPopover(props: PickerPopoverProps) {
-  const { label, kind, value, valueIcon, disabled, searchLabel, emptyLabel, leading = [], groups, filters, items, footer, onOpen,
+  const { label, value, valueIcon, disabled, searchLabel, emptyLabel, leading = [], groups, filters, items, footer, onOpen,
     onSelect } = props
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -146,7 +146,7 @@ export function PickerPopover(props: PickerPopoverProps) {
 
   const needle = query.trim().toLowerCase()
   const visible = useMemo(() => items.filter(item => (filter === null || (filters === undefined ? item.group : item.filter) === filter)
-    && `${item.label} ${item.tag ?? ''}`.toLowerCase().includes(needle)), [items, filters, filter, needle])
+    && `${item.label} ${item.note ?? ''} ${item.tag ?? ''}`.toLowerCase().includes(needle)), [items, filters, filter, needle])
   const shownGroups = groups.filter(entry => visible.some(item => item.group === entry.id))
   const shownLeading = needle === '' && filter === null ? leading : []
   // The detail card follows the pointer and the keyboard, and stays out of the way when neither is on a row.
@@ -162,6 +162,7 @@ export function PickerPopover(props: PickerPopoverProps) {
       onMouseEnter={() => { setFocus(item.id) }} onFocus={() => { setFocus(item.id) }} onClick={() => { choose(item.id) }}>
       <span className={css.rowIcon}>{groups.find(entry => entry.id === item.group)?.icon}</span>
       <span className={css.rowLabel}>{item.label}</span>
+      {item.note === undefined ? null : <span className={css.note}>{item.note}</span>}
       {item.tag === undefined ? null : <span className={css.tag}>{item.tag}</span>}
       {item.selected ? <IconCheckOutlineRegular size={14} className={css.check} /> : null}
     </button>
@@ -174,7 +175,6 @@ export function PickerPopover(props: PickerPopoverProps) {
         if (!open) { onOpen?.(); setQuery(''); setFilter(null); setFocus(null) }
         setOpen(current => !current)
       }}>
-      {kind === undefined ? null : <span className={css.triggerKind}>{kind}</span>}
       {valueIcon === undefined ? null : <span className={css.triggerIcon}>{valueIcon}</span>}
       <span className={css.triggerValue}>{value}</span>
       <IconChevronDownOutlineRegular size={12} />
@@ -227,13 +227,4 @@ export function PickerPopover(props: PickerPopoverProps) {
       </aside>}
     </div>, document.body)}
   </>
-}
-
-/**
- * A provider mark: the given logo, or the provider name's first letter.
- * @param props - the logo component or the name.
- * @returns the mark.
- */
-export function ProviderGlyph({ logo: Logo, name }: { logo?: (props: { size: number }) => ReactNode; name: string }) {
-  return <span className={css.glyph} aria-hidden="true">{Logo === undefined ? name.slice(0, 1).toUpperCase() : <Logo size={12} />}</span>
 }

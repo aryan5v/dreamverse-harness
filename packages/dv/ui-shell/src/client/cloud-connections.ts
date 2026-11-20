@@ -15,8 +15,16 @@ export interface ConnectionsSnapshot {
   catalogs: ReadonlyMap<string, CatalogState>
 }
 
-/** The outcome of saving a key: `saved` loaded the catalog; the others name why it did not. */
-export type SaveResult = 'saved' | 'missing' | 'rejected' | 'failed'
+/**
+ * The outcome of saving a key. `saved` stored the key and loaded the catalog. `rejected` and `unavailable` mean the
+ * provider refused or could not check the candidate key, which is then not stored. `needs-setup` stored the key
+ * because the provider accepted it, and carries what the account still needs. `missing` and `failed` come from the
+ * catalog request after a stored key.
+ */
+export type SaveResult = { status: 'saved' | 'missing' | 'rejected' | 'unavailable' | 'failed' }
+  | { status: 'needs-setup'; message: string }
+
+const UNAVAILABLE: CloudAccount = { status: 'unavailable' }
 
 /**
  * Read each provider's account once and load the catalog of every connected provider with its saved key. Requests of
@@ -40,11 +48,12 @@ export class CloudConnections {
   /** @returns the current snapshot, stable until the next change. */
   getSnapshot = (): ConnectionsSnapshot => this.snapshot
 
-  private publish(id: string, account: AccountState | undefined, catalog: CatalogState | undefined): void {
+  private publish(id: string, account: AccountState | undefined, catalog: CatalogState | null | undefined): void {
     const accounts = new Map(this.snapshot.accounts)
     const catalogs = new Map(this.snapshot.catalogs)
     if (account !== undefined) accounts.set(id, account)
-    if (catalog !== undefined) catalogs.set(id, catalog)
+    if (catalog === null) catalogs.delete(id)
+    else if (catalog !== undefined) catalogs.set(id, catalog)
     this.snapshot = { accounts, catalogs }
     for (const listener of this.listeners) listener()
   }
@@ -73,43 +82,64 @@ export class CloudConnections {
   async refresh(provider: CloudModelSettings): Promise<void> {
     const signal = this.begin(provider.id)
     this.publish(provider.id, { status: 'checking' }, undefined)
-    const account = await provider.account(signal).catch((): CloudAccount => ({ status: 'unavailable' }))
+    const account = await provider.account(signal).catch((): CloudAccount => UNAVAILABLE)
     if (signal.aborted) return
     this.publish(provider.id, account, undefined)
     if (account.status === 'connected') await this.load(provider, '', signal)
   }
 
   /**
-   * Save a key when one is given, then load the catalog and read the account again.
+   * Check a candidate key, store it unless the provider refuses it, then load the catalog and read the account again.
    * @param provider - the provider to save the key of.
    * @param apiKey - the new key, or an empty string to check the saved key.
-   * @returns whether the provider accepted the key.
+   * @returns what happened to the key.
    */
   async save(provider: CloudModelSettings, apiKey: string): Promise<SaveResult> {
     const signal = this.begin(provider.id)
-    const result = await this.load(provider, apiKey, signal)
-    if (signal.aborted) return result
-    const account = await provider.account(signal).catch((): CloudAccount => ({ status: 'unavailable' }))
-    if (!signal.aborted) this.publish(provider.id, account, undefined)
-    return result
+    if (apiKey !== '') {
+      const candidate = await provider.verify(apiKey, signal).catch((): CloudAccount => UNAVAILABLE)
+      if (signal.aborted) return { status: 'failed' }
+      if (candidate.status === 'rejected' || candidate.status === 'unavailable' || candidate.status === 'missing') {
+        return { status: candidate.status === 'missing' ? 'rejected' : candidate.status }
+      }
+    }
+    const loaded = await this.load(provider, apiKey, signal)
+    const superseded = (): boolean => signal.aborted
+    if (superseded()) return loaded
+    const account = await provider.account(signal).catch((): CloudAccount => UNAVAILABLE)
+    if (superseded()) return loaded
+    this.publish(provider.id, account, undefined)
+    if (loaded.status === 'saved' && account.status === 'needs-setup') return { status: 'needs-setup', message: account.message }
+    return loaded
+  }
+
+  /**
+   * Delete the provider's saved key and drop its catalog.
+   * @param provider - the provider to disconnect.
+   * @throws when the provider cannot delete the key.
+   */
+  async remove(provider: CloudModelSettings): Promise<void> {
+    this.begin(provider.id)
+    await provider.removeKey()
+    this.publish(provider.id, { status: 'missing' }, null)
   }
 
   private async load(provider: CloudModelSettings, apiKey: string, signal: AbortSignal): Promise<SaveResult> {
     this.publish(provider.id, undefined, { status: 'loading' })
     try {
       const catalog = await provider.load(apiKey, signal)
-      if (signal.aborted) return 'failed'
+      if (signal.aborted) return { status: 'failed' }
       if ('credentialError' in catalog) {
         this.publish(provider.id, undefined, { status: 'failed' })
-        return catalog.credentialError
+        return { status: catalog.credentialError }
       }
       this.publish(provider.id, undefined, { status: 'ready', models: catalog.models,
         ...catalog.warning === undefined ? {} : { warning: catalog.warning } })
-      return 'saved'
+      return { status: 'saved' }
     } catch (_failed) {
       // The catalog request failed; the snapshot records it so the sheet and the table report it in place.
       if (!signal.aborted) this.publish(provider.id, undefined, { status: 'failed' })
-      return 'failed'
+      return { status: 'failed' }
     }
   }
 

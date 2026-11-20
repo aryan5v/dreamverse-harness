@@ -12,7 +12,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-remotes/client'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
-import type { CloudMedia, CloudModel, CloudModelSettings, CloudSelection } from '@dv/ui-kit/cloud-model-settings.ts'
+import { providerName, type CloudAccount, type CloudMedia, type CloudModel, type CloudModelSettings, type CloudSelection } from '@dv/ui-kit/cloud-model-settings.ts'
 import { useText } from '@dv/ui-kit/locale.ts'
 import { createRegistry, type Registry } from '@dv/ui-kit/registries.ts'
 import { CloudConnections, type AccountState, type SaveResult } from './cloud-connections.ts'
@@ -46,10 +46,10 @@ function observeProviders(providers: readonly CloudModelSettings[]): HostObserva
 
 /** The registered providers, sorted by name, with their live selection state. */
 function useProviders(registry: Registry<CloudModelSettings>): readonly ProviderSnapshot[] {
-  const registered = useSyncExternalStore(registry.subscribe, registry.getSnapshot)
+  const registered = useSyncExternalStore(listener => registry.subscribe(listener), () => registry.getSnapshot())
   const providers = useMemo(() => [...registered].sort((a, b) => a.name.localeCompare(b.name)), [registered])
   const observable = useMemo(() => observeProviders(providers), [providers])
-  return useSyncExternalStore(observable.subscribe, observable.getSnapshot)
+  return useSyncExternalStore(listener => observable.subscribe(listener), () => observable.getSnapshot())
 }
 
 function useMediaName(): (media: CloudMedia) => string {
@@ -133,30 +133,29 @@ function AccountLine({ account }: { account: AccountState | undefined }) {
     return <span className={css.statusLine}><span className={css.dot} data-tone="muted" />{text('检查中…', 'Checking…')}</span>
   }
   const line = {
-    connected: [text('密钥已保存', 'Key saved'), 'positive'],
+    connected: [text('已连接', 'Connected'), 'positive'],
+    'needs-setup': [text('需要完成设置', 'Setup needed'), 'warning'],
     missing: [text('未连接', 'Not connected'), 'muted'],
     rejected: [text('密钥被拒绝', 'Key rejected'), 'negative'],
     unavailable: [text('无法读取账户', 'Account unavailable'), 'warning'],
   }[account.status]
   return <span className={css.statusLine}>
     <span className={css.dot} data-tone={line[1]} />{line[0]}
-    {account.status === 'connected' && account.label !== undefined ? <span className={css.statusDetail}>· {account.label}</span> : null}
+    {account.status === 'connected' && account.label !== null ? <span className={css.statusDetail}>· {account.label}</span> : null}
+    {account.status === 'needs-setup' && account.message !== '' ? <span className={css.statusDetail}>· {account.message}</span> : null}
   </span>
 }
 
-/** Words of a provider route id that a reader capitalizes differently from a plain title case. */
-const PROVIDER_WORDS: Readonly<Record<string, string>> = {
-  ai: 'AI', api: 'API', deepseek: 'DeepSeek', github: 'GitHub', huggingface: 'Hugging Face', llm: 'LLM',
-  minimax: 'MiniMax', moonshotai: 'Moonshot AI', nvidia: 'NVIDIA', openai: 'OpenAI', xai: 'xAI', zai: 'Z.ai',
-}
+/** The remaining credit of a connected account: the balance, else what is left of the key's spending limit. */
+const creditOf = (account: CloudAccount | AccountState | undefined): number | null =>
+  account?.status === 'connected' ? account.balanceUsd ?? account.limitRemainingUsd : null
 
 /**
  * Name a declared provider route for a card, such as `amazon-bedrock` for Amazon Bedrock.
  * @param id - the route id.
  * @returns the words of the id, each capitalized.
  */
-const providerLabel = (id: string): string => id.split(/[-_.]/).filter(Boolean)
-  .map(word => PROVIDER_WORDS[word] ?? word[0]?.toUpperCase() + word.slice(1)).join(' ')
+const providerLabel = (id: string): string => providerName([], id)
 
 /** The provider a drawer shows: a generation provider, one LLM directory row, or the custom-endpoint card. */
 type DrawerTarget = { kind: 'generation'; id: string } | { kind: 'llm'; provider: string } | { kind: 'custom' }
@@ -190,7 +189,9 @@ export function Connections({ providers: registry, connections, page }: Injected
     document.addEventListener('keydown', close)
     return () => { document.removeEventListener('keydown', close) }
   }, [drawer])
-  const generation = providers.filter(({ provider }) => accounts.get(provider.id)?.status === 'connected')
+  // A provider stays listed in every state, so a rejected or unreachable key can be fixed or removed from its row.
+  const generation = providers
+  const generationConnected = providers.filter(({ provider }) => accounts.get(provider.id)?.status === 'connected').length
   const rows = page?.rows ?? []
   const llm = rows.filter(row => row.entry.active && providerUsable(row))
   const editing = drawer?.kind === 'llm' ? rows.find(row => row.entry.provider === drawer.provider) : undefined
@@ -204,7 +205,7 @@ export function Connections({ providers: registry, connections, page }: Injected
   const offeredGeneration = providers.filter(({ provider }) => (mediaFilter === '' ? true
     : mediaFilter === 'llm' ? provider.enableOperator !== undefined : provider.media.includes(mediaFilter))
     && (needle === '' || provider.name.toLowerCase().includes(needle)))
-  const connected = generation.length + llm.length
+  const connected = generationConnected + llm.length
   const removeEditing = async (): Promise<void> => {
     if (editing === undefined || page === undefined) return
     setRemoving(true)
@@ -258,7 +259,7 @@ export function Connections({ providers: registry, connections, page }: Injected
               </span>
               <span className={css.rowMeta} data-align="end">
                 <span className={css.metaLabel}>{text('余额', 'Balance')}</span>
-                <span className={css.numeric}>{account?.status === 'connected' && account.balanceUsd !== null ? usd(account.balanceUsd) : '—'}</span>
+                <span className={css.numeric}>{creditOf(account) === null ? '—' : usd(creditOf(account) ?? 0)}</span>
               </span>
               <IconChevronRightOutlineRegular size={14} className={css.chevron} />
             </button>
@@ -420,14 +421,41 @@ function GenerationEditor({ providers, connections, accounts, id, onBack }: {
   </>
 }
 
-/** The key form that saves, replaces, and checks one generation provider's key. */
+/** What the key form last did: a save, a chat route change, or a key removal. */
+type FormOutcome = SaveResult | 'operator' | 'operatorDisabled' | 'operatorFailed' | 'removed' | 'removeFailed'
+
+/** The sentence under the key field for one outcome; `true` marks a problem. */
+function saveMessage(text: ReturnType<typeof useText>, provider: CloudModelSettings, result: FormOutcome): readonly [string, boolean] {
+  if (typeof result === 'object') {
+    return result.status === 'needs-setup'
+      ? [text(`密钥已保存。${provider.name} 还需完成设置：${result.message}`, `Key saved. ${provider.name} still needs setup: ${result.message}`), true]
+      : SAVE_STATUS(text, provider)[result.status]
+  }
+  return ({
+    operator: [text(`现在可以在聊天中选择 ${provider.name} LLM。`, `You can now pick ${provider.name} LLMs in chat.`), false],
+    operatorDisabled: [text('此提供商不再提供聊天 LLM。', 'This provider no longer serves chat LLMs.'), false],
+    operatorFailed: [text('无法更新聊天 LLM 设置。请重试。', 'Could not update the chat LLM setting. Try again.'), true],
+    removed: [text('密钥已移除。', 'Key removed.'), false],
+    removeFailed: [text('无法移除密钥。请重试。', 'Could not remove the key. Try again.'), true],
+  } as const)[result]
+}
+
+const SAVE_STATUS = (text: ReturnType<typeof useText>, provider: CloudModelSettings) => ({
+  saved: [text('密钥有效，模型已加载。', 'Key works. Models loaded.'), false],
+  missing: [text('请先输入 API 密钥。', 'Enter an API key first.'), true],
+  rejected: [text(`${provider.name} 拒绝了此密钥，未保存。请检查后重试。`, `${provider.name} rejected this key, so it was not saved. Check it and try again.`), true],
+  unavailable: [text(`暂时无法向 ${provider.name} 验证此密钥，未保存。请稍后重试。`, `Could not check this key with ${provider.name}, so it was not saved. Try again later.`), true],
+  failed: [text('无法加载模型。请检查网络后重试。', 'Could not load the models. Check your network and try again.'), true],
+}) as const
+
+/** The key form that saves, replaces, removes, and checks one generation provider's key. */
 function ProviderKeyForm({ provider, state, account, connections, onClose, embedded = false }: {
   provider: CloudModelSettings
   state: CloudSelection
   account: AccountState | undefined
   connections: CloudConnections
   onClose: () => void
-  /** Draw the form bare, for an enclosing drawer that owns the title and the dismissal. */
+  /** Draw the form bare inside a drawer that owns the dialog, the title, and Escape. */
   embedded?: boolean
 }) {
   const text = useText()
@@ -436,67 +464,51 @@ function ProviderKeyForm({ provider, state, account, connections, onClose, embed
   const catalog = catalogs.get(provider.id)
   const [key, setKey] = useState('')
   const [pending, setPending] = useState(false)
-  const [result, setResult] = useState<SaveResult | 'operator' | 'operatorDisabled' | 'operatorFailed' | null>(null)
+  const [result, setResult] = useState<FormOutcome | null>(null)
+  const [confirmingRemove, setConfirmingRemove] = useState(false)
   const titleId = useId()
   const keyId = useId()
   useEffect(() => {
+    if (embedded) return
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('keydown', onKey) }
-  }, [onClose])
+  }, [embedded, onClose])
   const saved = account?.status === 'connected' || account?.status === 'rejected' || account?.status === 'unavailable'
+    || account?.status === 'needs-setup'
   // The chat option follows the operator profile, so a key saved earlier still reads as enabled after a reload; the
   // last write wins over that read so the box reflects the click before the profile comes back.
   const chatEnabled = result === 'operatorDisabled' ? false
     : result === 'operator' || provider.operatorEnabled?.() === true
+  const run = async (action: () => Promise<FormOutcome>, failed: FormOutcome): Promise<void> => {
+    setPending(true)
+    setResult(null)
+    try {
+      setResult(await action())
+    } catch (_refused) {
+      // The provider refused the write or the settings changed; the form reports it in place.
+      setResult(failed)
+    } finally { setPending(false) }
+  }
   const save = async (): Promise<void> => {
     setPending(true)
     setResult(null)
     const outcome = await connections.save(provider, key.trim())
     setPending(false)
     setResult(outcome)
-    if (outcome === 'saved') setKey('')
-  }
-  const enableOperator = async (): Promise<void> => {
-    setPending(true)
-    setResult(null)
-    try {
-      await provider.enableOperator?.(key.trim())
-      setKey('')
-      setResult('operator')
-    } catch (_refused) {
-      // The provider refused the key or the operator settings changed; the sheet reports it in place.
-      setResult('operatorFailed')
-    } finally { setPending(false) }
-  }
-  const stopOperator = async (): Promise<void> => {
-    setPending(true)
-    setResult(null)
-    try {
-      await provider.disableOperator?.()
-      setResult('operatorDisabled')
-    } catch (_refused) {
-      // The provider refused the write or the operator settings changed; the sheet reports it in place.
-      setResult('operatorFailed')
-    } finally { setPending(false) }
+    // A key the provider refused stays in the field for correction; a stored key leaves the form state.
+    if (outcome.status === 'saved' || outcome.status === 'needs-setup') setKey('')
   }
   const counts = catalog?.status === 'ready'
     ? provider.media.map(media => [media, catalog.models.filter(model => model.media === media).length] as const)
     : []
-  const message = result === null ? null : {
-    saved: [text('密钥有效，模型已加载。', 'Key works. Models loaded.'), false],
-    missing: [text('请先输入 API 密钥。', 'Enter an API key first.'), true],
-    rejected: [text(`${provider.name} 拒绝了此密钥。请检查后重试。`, `${provider.name} rejected this key. Check it and try again.`), true],
-    failed: [text('无法连接。请检查密钥和网络后重试。', 'Could not connect. Check the key and your network, then try again.'), true],
-    operator: [text('现在可以在聊天中选择 OpenRouter LLM。', 'You can now pick OpenRouter LLMs in chat.'), false],
-    operatorDisabled: [text('此提供商不再提供聊天 LLM。', 'This provider no longer serves chat LLMs.'), false],
-    operatorFailed: [text('无法启用聊天 LLM。请检查密钥。', 'Could not enable chat LLMs. Check the key.'), true],
-  }[result]
-  return <form className={css.sheet} role="dialog" aria-modal="true" aria-labelledby={titleId}
+  const message = result === null ? null : saveMessage(text, provider, result)
+  return <form className={css.sheet} role={embedded ? undefined : 'dialog'} aria-modal={embedded ? undefined : 'true'}
+    aria-labelledby={embedded ? undefined : titleId}
     onSubmit={(event) => { event.preventDefault(); void save() }}>
     {embedded ? <header className={css.embeddedHead}>
       <ProviderMark provider={provider} size={24} />
-      <span>{text(`连接 ${provider.name}`, `Connect ${provider.name}`)}</span>
+      <span>{saved ? provider.name : text(`连接 ${provider.name}`, `Connect ${provider.name}`)}</span>
     </header> : <header className={css.sheetHead}>
       <ProviderMark provider={provider} size={28} />
       <h2 id={titleId}>{saved ? provider.name : text(`连接 ${provider.name}`, `Connect ${provider.name}`)}</h2>
@@ -509,7 +521,7 @@ function ProviderKeyForm({ provider, state, account, connections, onClose, embed
         <div className={css.keyState} data-tone={account?.status === 'connected' ? 'positive' : account?.status === 'rejected' ? 'negative' : 'muted'}>
           <AccountLine account={account} />
           {account?.status === 'connected' ? <span className={css.balance}>
-            {account.balanceUsd === null ? text('余额不可用', 'Balance unavailable') : text(`剩余 ${usd(account.balanceUsd)}`, `${usd(account.balanceUsd)} left`)}
+            {creditOf(account) === null ? text('余额不可用', 'Balance unavailable') : text(`剩余 ${usd(creditOf(account) ?? 0)}`, `${usd(creditOf(account) ?? 0)} left`)}
           </span> : null}
         </div>
         <label className={css.field} htmlFor={keyId}>
@@ -539,15 +551,36 @@ function ProviderKeyForm({ provider, state, account, connections, onClose, embed
         {catalog?.status === 'ready' && catalog.warning !== undefined ? <p className={css.error} role="alert">{catalog.warning}</p> : null}
         {provider.enableOperator === undefined ? null : <label className={css.checkRow}>
           <input type="checkbox" checked={chatEnabled} disabled={pending || !state.writable || account?.status !== 'connected'}
-            onChange={(event) => { void (event.target.checked ? enableOperator() : stopOperator()) }} />
+            onChange={(event) => {
+              const enable = event.target.checked
+              void run(async () => {
+                if (enable) await provider.enableOperator?.()
+                else await provider.disableOperator?.()
+                return enable ? 'operator' : 'operatorDisabled'
+              }, 'operatorFailed')
+            }} />
           <span>{text('也用于聊天 LLM', 'Also use for chat LLMs')}</span>
         </label>}
       </section>
+      {!saved ? null : <section className={css.removeZone}>
+        {confirmingRemove ? <>
+          <p className={css.hint}>{text(`移除 ${provider.name} 的密钥？已启用的模型会保留，但在重新保存密钥前无法使用。`,
+            `Remove the ${provider.name} key? Enabled models stay listed but cannot run until a key is saved again.`)}</p>
+          <div className={css.confirmRow}>
+            <button type="button" className={css.chip} onClick={() => { setConfirmingRemove(false) }}>{text('取消', 'Cancel')}</button>
+            <button type="button" className={css.danger} disabled={pending}
+              onClick={() => { setConfirmingRemove(false); void run(async () => { await connections.remove(provider); return 'removed' }, 'removeFailed') }}>
+              {text('移除密钥', 'Remove key')}
+            </button>
+          </div>
+        </> : <button type="button" className={css.danger} disabled={pending || !state.writable}
+          onClick={() => { setConfirmingRemove(true) }}>{text('移除密钥', 'Remove key')}</button>}
+      </section>}
     </div>
     <footer className={css.sheetFoot} data-embedded={embedded ? '' : undefined}>
       {embedded ? null : <Button type="button" variant="outline" onClick={onClose}>{text('完成', 'Done')}</Button>}
       <Button type="submit" variant="primary" disabled={pending || !state.writable || (key.trim() === '' && !saved)}>
-        {pending ? text('检查中…', 'Checking…') : key.trim() === '' ? text('检查访问', 'Check access') : text('保存密钥', 'Save key')}
+        {pending ? text('检查中…', 'Checking…') : key.trim() === '' ? text('检查访问', 'Check access') : text('验证并保存', 'Verify and save')}
       </Button>
     </footer>
   </form>

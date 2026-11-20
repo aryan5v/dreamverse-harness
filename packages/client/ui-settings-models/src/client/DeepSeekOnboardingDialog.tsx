@@ -1,9 +1,10 @@
 /**
- * Official-DeepSeek first-run step. Readiness comes from the same
- * provider/settings/credential join as the Models page: any provider the user
- * can already talk to ends the step, and only a user with none is offered the
- * official DeepSeek route. The step reuses that page's credential editor in
- * the onboarding plugin's shared modal, so the key is entered once.
+ * First-run model step. Readiness comes from the same provider/settings/credential
+ * join as the Models page: any provider the user can already talk to ends the
+ * step. A user with none is asked to choose a provider in Models settings, after
+ * the optional `settings.models.sign-in` account login. An explicit request
+ * (the account menu) opens the official DeepSeek credential editor, reusing the
+ * Models page editor in the onboarding plugin's shared modal.
  */
 
 import { useEffect, useState } from 'react'
@@ -49,14 +50,15 @@ function assertNever(_value: never): never {
 }
 
 /**
- * Prompt a first-run user for the official DeepSeek credential while no
- * provider can serve requests and that credential is writable.
+ * Prompt a first-run user to choose a provider while none can serve requests,
+ * or show the official DeepSeek credential editor on an explicit request.
  * @param props - settings-shell owner state and Models feature dependencies.
  * @returns the onboarding modal or null when onboarding needs no intervention.
  */
 export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): ReactNode {
   const { complete, controller, useModels, operations, schema, t, renderSlot, automatic, explicit = false, openSection } = props
-  const [apiKey, setApiKey] = useState(explicit)
+  // Set when the person leaves the account sign-in choice for the provider chooser.
+  const [signInSkipped, setSignInSkipped] = useState(false)
   const state = useModels(snapshot => snapshot)
   const readiness = onboardingReadiness(state)
 
@@ -92,8 +94,9 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
 
   if (!explicit) {
     // First run asks the person to choose a provider in Settings, because the provider may be a local server or any
-    // third party rather than the official route this step used to assume.
-    return (
+    // third party rather than the official route this step used to assume. An account login contributor offers its
+    // sign-in first; leaving that choice lands on the same chooser, which is also the slot's fallback.
+    const chooser = (
       <OnboardingModal title={t('onboardingChooseTitle')} focusTitle>
         <div className={styles.actions}>
           <Button variant="outline" onClick={complete}>{t('onboardingChooseLater')}</Button>
@@ -103,6 +106,9 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
         </div>
       </OnboardingModal>
     )
+    return signInSkipped
+      ? chooser
+      : renderSlot('settings.models.sign-in', { complete, useApiKey: () => { setSignInSkipped(true) } }, { fallback: chooser })
   }
 
   const row = state.rows.find(candidate =>
@@ -121,7 +127,7 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
     void controller.load()
   }
 
-  const editor = (
+  return (
     <OnboardingModal title={t('onboardingTitle')}>
       <p className={styles.description}>{t('onboardingDescription')}</p>
       <div className={styles.editor}>
@@ -146,5 +152,4 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
       </div>
     </OnboardingModal>
   )
-  return apiKey ? editor : renderSlot('settings.models.sign-in', { complete, useApiKey: () => { setApiKey(true) } }, { fallback: editor })
 }

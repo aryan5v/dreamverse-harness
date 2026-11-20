@@ -20,16 +20,19 @@ export interface CloudSelection {
   enabled: readonly CloudModel[]
 }
 
-/** A catalog response or a credential problem that requires a new key. */
+/** A catalog response or a credential problem that requires a new key: the provider answered 503 or 401. */
 export type CloudCatalogResult = { models: readonly CloudModel[]; warning?: string }
   | { credentialError: 'missing' | 'rejected' }
 
 /**
- * The saved credential's state and the provider's remaining balance. `missing` means no key is saved; `rejected`
- * means the provider refused the saved key; `unavailable` means the account could not be read for another reason.
+ * A credential's state and the provider's remaining balance. `missing` means no key is saved; `rejected` means the
+ * provider refused the key; `unavailable` means the account could not be read for another reason; `needs-setup`
+ * means the provider accepted the key but the account needs a step the `message` names. It mirrors the host wire type
+ * `AccountStatus` of `@dv/models`, which UI core may not import.
  */
 export type CloudAccount = { status: 'missing' | 'rejected' | 'unavailable' }
-  | { status: 'connected'; balanceUsd: number | null; label?: string }
+  | { status: 'needs-setup'; message: string }
+  | { status: 'connected'; balanceUsd: number | null; label: string | null; limitRemainingUsd: number | null }
 
 /** A credential editor and a model catalog supplied by a provider plugin. */
 export interface CloudModelSettings {
@@ -47,15 +50,24 @@ export interface CloudModelSettings {
    * Read the saved key's state and the remaining balance.
    * @param signal - cancels the request.
    */
-  account(signal: AbortSignal): Promise<CloudAccount>
+  account(this: void, signal: AbortSignal): Promise<CloudAccount>
+  /**
+   * Check a candidate key without saving it.
+   * @param apiKey - the key the user typed.
+   * @param signal - cancels the request.
+   */
+  verify(this: void, apiKey: string, signal: AbortSignal): Promise<CloudAccount>
   /**
    * Save a non-empty key, then read the catalog with the saved key.
    * @param apiKey - the new key, or an empty string to keep the saved key.
    * @param signal - cancels the request.
    */
-  load(apiKey: string, signal: AbortSignal): Promise<CloudCatalogResult>
-  setEnabled(model: CloudModel, enabled: boolean): Promise<void>
-  enableOperator?(apiKey: string): Promise<void>
+  load(this: void, apiKey: string, signal: AbortSignal): Promise<CloudCatalogResult>
+  /** Delete the saved key. Enabled models stay in the settings and read as unavailable until a key is saved again. */
+  removeKey(this: void): Promise<void>
+  setEnabled(this: void, model: CloudModel, enabled: boolean): Promise<void>
+  /** Let the saved key serve chat requests. */
+  enableOperator?(this: void): Promise<void>
   /** Stop the provider's key from serving chat requests, keeping the key itself saved. */
   disableOperator?(this: void): Promise<void>
   /**
@@ -67,19 +79,71 @@ export interface CloudModelSettings {
 }
 
 /**
- * Read a provider's `/api/dv/<provider>/account` route.
- * @param url - the same-origin account route.
- * @param signal - cancels the request.
+ * Read the account state a provider's account route answers.
+ * @param response - the route's response.
  * @returns the account state; an answer that is not a known state reads as `unavailable`.
  */
-export async function fetchCloudAccount(url: string, signal: AbortSignal): Promise<CloudAccount> {
-  const response = await fetch(url, { signal })
+async function readAccount(response: Response): Promise<CloudAccount> {
   if (!response.ok) return { status: 'unavailable' }
-  const body = await response.json() as { status?: unknown; balanceUsd?: unknown; label?: unknown }
+  const body = await response.json() as Partial<Record<'status' | 'message' | 'balanceUsd' | 'label' | 'limitRemainingUsd', unknown>>
   if (body.status === 'missing' || body.status === 'rejected' || body.status === 'unavailable') return { status: body.status }
+  if (body.status === 'needs-setup') return { status: 'needs-setup', message: typeof body.message === 'string' ? body.message : '' }
   if (body.status !== 'connected') return { status: 'unavailable' }
-  return { status: 'connected', balanceUsd: typeof body.balanceUsd === 'number' ? body.balanceUsd : null,
-    ...typeof body.label === 'string' ? { label: body.label } : {} }
+  return {
+    status: 'connected',
+    balanceUsd: typeof body.balanceUsd === 'number' ? body.balanceUsd : null,
+    label: typeof body.label === 'string' ? body.label : null,
+    limitRemainingUsd: typeof body.limitRemainingUsd === 'number' ? body.limitRemainingUsd : null,
+  }
+}
+
+/**
+ * Read the saved key's state from a provider's `/api/dv/<provider>/account` route.
+ * @param url - the same-origin account route.
+ * @param signal - cancels the request.
+ * @returns the account state.
+ */
+export async function fetchCloudAccount(url: string, signal: AbortSignal): Promise<CloudAccount> {
+  return await readAccount(await fetch(url, { signal, cache: 'no-store' }))
+}
+
+/**
+ * Check a candidate key through the same account route, which does not store it.
+ * @param url - the same-origin account route.
+ * @param apiKey - the candidate key; it is sent in the request body only.
+ * @param signal - cancels the request.
+ * @returns the account state the key would give.
+ */
+export async function verifyCloudKey(url: string, apiKey: string, signal: AbortSignal): Promise<CloudAccount> {
+  return await readAccount(await fetch(url, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: apiKey }), signal, cache: 'no-store',
+  }))
+}
+
+/**
+ * Read a provider's catalog route, mapping a missing key (503) and a rejected key (401) the same way for every provider.
+ * @param url - the same-origin catalog route.
+ * @param signal - cancels the request.
+ * @returns the parsed catalog body, or the credential problem.
+ * @throws when the provider answers any other failure.
+ */
+export async function fetchCloudCatalog<T>(url: string, signal: AbortSignal | undefined): Promise<T | { credentialError: 'missing' | 'rejected' }> {
+  const response = await fetch(url, { signal: signal ?? null, cache: 'no-store' })
+  if (response.status === 401) return { credentialError: 'rejected' }
+  if (response.status === 503) return { credentialError: 'missing' }
+  if (!response.ok) throw new Error(`The catalog request failed with HTTP ${response.status}.`)
+  return await response.json() as T
+}
+
+/**
+ * Name a provider for display: the registered cloud provider's name, or the provider id with each word capitalized.
+ * @param providers - the registered cloud providers.
+ * @param id - the provider id of a catalog entry.
+ * @returns the display name.
+ */
+export function providerName(providers: readonly Pick<CloudModelSettings, 'id' | 'name'>[], id: string): string {
+  return providers.find(provider => provider.id === id)?.name
+    ?? id.split(/[-_.\s]+/).filter(Boolean).map(word => word.slice(0, 1).toUpperCase() + word.slice(1)).join(' ')
 }
 
 declare module '@deepseek-ai/cordis' {

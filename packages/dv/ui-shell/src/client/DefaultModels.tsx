@@ -3,7 +3,7 @@ import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, 
 import { IconChevronDownOutlineRegular, Menu, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
-import type { CloudMedia, CloudModelSettings } from '@dv/ui-kit/cloud-model-settings.ts'
+import { providerName as nameOfProvider, type CloudMedia, type CloudModelSettings } from '@dv/ui-kit/cloud-model-settings.ts'
 import { useText } from '@dv/ui-kit/locale.ts'
 import type { Registry } from '@dv/ui-kit/registries.ts'
 import type { WireModelEntry } from '@dv/ui-kit/types.ts'
@@ -31,9 +31,11 @@ function useForm<T>(form: ConfigForm<T>) {
 }
 
 /** One labelled row with a menu of models. */
-function ModelRow({ title, help, value, items, disabled, onSelect, onOpen }: {
+function ModelRow({ title, help, value, items, disabled, onSelect, onOpen, warning }: {
   title: string
   help: string
+  /** Shown instead of nothing when the saved choice is no longer offered, with the action that clears it. */
+  warning?: { message: string; action: string; onAction: () => void }
   value: { label: string; icon?: ReactNode }
   items: readonly MenuEntry[]
   disabled: boolean
@@ -44,7 +46,12 @@ function ModelRow({ title, help, value, items, disabled, onSelect, onOpen }: {
   const [open, setOpen] = useState(false)
   const labelId = useId()
   return <li className={css.settingRow}>
-    <span className={css.settingText}><strong id={labelId}>{title}</strong><span>{help}</span></span>
+    <span className={css.settingText}>
+      <strong id={labelId}>{title}</strong><span>{help}</span>
+      {warning === undefined ? null : <span className={css.staleWarning} role="alert">
+        {warning.message}<button type="button" className={css.chip} onClick={warning.onAction}>{warning.action}</button>
+      </span>}
+    </span>
     <Menu open={open} onClose={() => { setOpen(false) }} portal align="end" autoFocus items={items}
       selectedId={undefined} onSelect={(id) => { setOpen(false); onSelect(id) }}
       anchor={<button type="button" className={css.picker} aria-haspopup="menu" aria-expanded={open}
@@ -64,9 +71,10 @@ export function DefaultModels({ source, providers: registry }: DefaultModelsProp
   const text = useText()
   const llm = useForm(source.llmForm)
   const media = useForm(source.mediaForm)
-  const providers = useSyncExternalStore(registry.subscribe, registry.getSnapshot)
+  const providers = useSyncExternalStore(listener => registry.subscribe(listener), () => registry.getSnapshot())
   const [catalog, setCatalog] = useState<ModelCatalog | null>(null)
   const [entries, setEntries] = useState<readonly WireModelEntry[]>([])
+  const [mediaLoaded, setMediaLoaded] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const headingId = useId()
   const live = useRef(true)
@@ -81,10 +89,10 @@ export function DefaultModels({ source, providers: registry }: DefaultModelsProp
       // Without a catalog the row still shows the saved default and offers no other choice.
       if (live.current) setCatalog(null)
     })
-    source.mediaCatalog(controller.signal).then((value) => { if (live.current) setEntries(value) },
+    source.mediaCatalog(controller.signal).then((value) => { if (live.current) { setEntries(value); setMediaLoaded(true) } },
       (_unavailable: unknown) => {
         // The generation rows offer Auto alone until the catalog loads.
-        if (live.current) setEntries([])
+        if (live.current) { setEntries([]); setMediaLoaded(false) }
       })
     return controller
   }, [source])
@@ -99,8 +107,8 @@ export function DefaultModels({ source, providers: registry }: DefaultModelsProp
     const Logo = match.logo
     return <span className={css.inlineMark} aria-hidden="true"><Logo size={12} /></span>
   }
-  const providerName = (provider: string) => providers.find(entry => entry.id === provider)?.name
-    ?? catalog?.groups.find(group => group.id === provider)?.name ?? provider
+  const providerName = (provider: string) => catalog?.groups.find(group => group.id === provider)?.name
+    ?? nameOfProvider(providers, provider)
 
   const write = async (form: ConfigForm<never>, ops: Parameters<ConfigForm<never>['mutate']>[0], revision: number | undefined) => {
     setFailure(null)
@@ -154,9 +162,19 @@ export function DefaultModels({ source, providers: registry }: DefaultModelsProp
         const choices = unique(row.media)
         const current = defaults[row.media]
         const entry = current === undefined ? undefined : choices.find(choice => choiceId(choice) === choiceId(current))
+        // A saved default the catalog no longer offers still starts new conversations on a missing model, so say so.
+        const stale = current !== undefined && mediaLoaded && entry === undefined
+        const clear = (): void => {
+          void write(source.mediaForm as ConfigForm<never>, [{ op: 'set', path: ['defaults'],
+            value: Object.fromEntries(Object.entries(defaults).filter(([kind]) => kind !== row.media)) }], media.revision)
+        }
         return <ModelRow key={row.media} title={row.title} help={row.help}
+          {...stale ? { warning: {
+            message: text(`${current.model} 已不可用，新对话会从自动开始。`, `${current.model} is no longer available, so new conversations start on Auto.`),
+            action: text('改回自动', 'Use Auto'), onAction: clear } } : {}}
           value={current === undefined ? { label: text('自动 · 由导演选择', 'Auto · the director chooses') }
-            : { label: `${entry?.display_name ?? current.model}`, icon: logoOf(current.provider) }}
+            : { label: stale ? text(`${current.model} · 不可用`, `${current.model} · Unavailable`)
+              : `${entry?.display_name ?? current.model} · ${providerName(current.provider)}`, icon: logoOf(current.provider) }}
           items={[
             { id: '', label: text('自动 · 由导演选择', 'Auto · the director chooses') },
             ...choices.length === 0 ? [] : [{ type: 'separator' as const, id: 'sep' }],

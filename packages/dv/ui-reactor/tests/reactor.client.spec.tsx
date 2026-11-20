@@ -39,7 +39,8 @@ class Form implements ConfigForm<ReactorSettings> {
 it('loads supported shot workflows and persists the chosen deployment without its key', async () => {
   const form = new Form()
   const storeKey = vi.fn(async () => {})
-  const provider = reactorSettings({ form, storeKey, discover: async () => catalog, account: async () => ({ status: 'missing' }) })
+  const provider = reactorSettings({ form, storeKey, removeKey: async () => {}, discover: async () => catalog,
+    account: async () => ({ status: 'missing' }), verify: async () => ({ status: 'missing' }) })
   const loaded = await provider.load('rk_fixture', new AbortController().signal)
   expect(storeKey).toHaveBeenCalledExactlyOnceWith('REACTOR_API_KEY', 'rk_fixture')
   if ('credentialError' in loaded) throw new Error('Expected a catalog')
@@ -57,7 +58,8 @@ it('shows a preconfigured deployment before discovery and refuses to enable a di
   await form.mutate([{ op: 'set', path: ['models'], value: { custom: { profile: 'pika-h3-flex', modelId: 'team/custom' } } }], 1)
   const storeKey = vi.fn(async () => {})
   const provider = reactorSettings({
-    form, storeKey, discover: async () => ({ models: [{ ...model, status: 'disabled', shotModels: [] }] }), account: async () => ({ status: 'missing' }),
+    form, storeKey, removeKey: async () => {}, discover: async () => ({ models: [{ ...model, status: 'disabled', shotModels: [] }] }),
+    account: async () => ({ status: 'missing' }), verify: async () => ({ status: 'missing' }),
   })
   expect(provider.settings.getSnapshot().enabled).toEqual([{ id: 'team/custom', name: 'team/custom', media: 'video' }])
   const loaded = await provider.load('', new AbortController().signal)
@@ -66,4 +68,18 @@ it('shows a preconfigured deployment before discovery and refuses to enable a di
   expect(models[0]?.unavailable).toBe('provider')
   await expect(provider.setEnabled(models[0]!, true)).rejects.toThrow('Unavailable model')
   expect(storeKey).not.toHaveBeenCalled()
+})
+
+it('deletes the key under the form credential reference and passes a credential error through', async () => {
+  const form = new Form()
+  const removeKey = vi.fn(async () => {})
+  const verify = vi.fn(async () => ({ status: 'rejected' as const }))
+  const provider = reactorSettings({
+    form, storeKey: async () => {}, removeKey, discover: async () => ({ credentialError: 'rejected' }),
+    account: async () => ({ status: 'missing' }), verify,
+  })
+  await provider.removeKey()
+  expect(removeKey).toHaveBeenCalledExactlyOnceWith('REACTOR_API_KEY')
+  expect(await provider.load('', new AbortController().signal)).toEqual({ credentialError: 'rejected' })
+  expect(await provider.verify('candidate', new AbortController().signal)).toEqual({ status: 'rejected' })
 })

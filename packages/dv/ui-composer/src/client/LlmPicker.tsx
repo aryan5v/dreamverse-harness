@@ -1,8 +1,9 @@
 /** The composer's LLM seat as a provider-grouped popover; lists only providers that can serve a request now. */
-import { useEffect, useState, useSyncExternalStore, type ComponentType, type ReactNode } from 'react'
+import { useEffect, useState, useSyncExternalStore, type ComponentType } from 'react'
 import type { ModelSelectInjected } from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import { useText } from '@dv/ui-kit/locale.ts'
 import { PickerPopover, type PickerItem } from './PickerPopover.tsx'
+import { ProviderGlyph } from './ProviderGlyph.tsx'
 import css from './picker.module.css'
 
 /** The seat's face: the session's model directory plus the providers able to serve a request. */
@@ -25,20 +26,17 @@ export function LlmPicker({ locked, available, directory, load, select, routable
   const state = useSyncExternalStore(listener => directory.subscribe(listener), () => directory.getSnapshot())
   const [routes, setRoutes] = useState<readonly string[] | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
-  useEffect(() => { if (available) load() }, [available, load])
   const refresh = (): void => {
+    if (!available) return
     load()
     routable().then(setRoutes, (_unknown: unknown) => {
       // Without the route list every loaded group stays listed.
       setRoutes(null)
     })
   }
-  useEffect(refresh, [])
+  useEffect(refresh, [available])
   if (!available) return null
-  const glyph = (provider: string, name: string): ReactNode => {
-    const Logo = logoOf(provider)
-    return <span className={css.glyph} aria-hidden="true">{Logo === undefined ? name.slice(0, 1).toUpperCase() : <Logo size={12} />}</span>
-  }
+  const glyph = (provider: string, name: string) => <ProviderGlyph logo={logoOf(provider)} name={name} />
   const current = state.current
   const groups = state.groups.filter(group => routes === null || routes.includes(group.id)
     || (current !== null && current.provider === group.id))
@@ -55,7 +53,7 @@ export function LlmPicker({ locked, available, directory, load, select, routable
     const selected = current?.provider === group.id && current.model === model.id
     const efforts = model.reasoning?.efforts ?? []
     return {
-      id: rowOf(group.id, model.id), group: group.id, label: model.name, selected,
+      id: rowOf(group.id, model.id), group: group.id, label: model.name, note: group.name, selected,
       facts: [
         [text('提供商', 'Provider'), group.name],
         [text('模型', 'Model'), model.id],
@@ -66,7 +64,7 @@ export function LlmPicker({ locked, available, directory, load, select, routable
         extra: <div className={css.efforts}>
           <span className={css.effortLabel}>{text('推理强度', 'Reasoning effort')}</span>
           <div className={css.effortTrack} role="group" aria-label={text('推理强度', 'Reasoning effort')}>
-            {efforts.map(effort => <button key={effort.id} type="button" aria-pressed={current?.reasoningEffort === effort.id}
+            {efforts.map(effort => <button key={effort.id} type="button" aria-pressed={current.reasoningEffort === effort.id}
               title={effort.description} onClick={() => { choose({ provider: group.id, model: model.id, reasoningEffort: effort.id }) }}>
               {effort.name}</button>)}
           </div>
@@ -77,7 +75,8 @@ export function LlmPicker({ locked, available, directory, load, select, routable
   return <span className="dv-model-choice">
     <PickerPopover label={text('语言模型', 'Language model')} disabled={locked || state.status === 'selecting'}
       value={currentModel === undefined ? current?.model ?? text('选择模型', 'Choose a model')
-        : effortName === undefined ? currentModel.name : `${currentModel.name} · ${effortName}`}
+        : [currentModel.name, state.groups.find(group => group.id === current?.provider)?.name, effortName]
+          .filter(part => part !== undefined).join(' · ')}
       valueIcon={current === null ? undefined
         : glyph(current.provider, groups.find(group => group.id === current.provider)?.name ?? current.provider)}
       searchLabel={text('搜索模型', 'Search models')} emptyLabel={text('没有匹配的模型。', 'No models match.')}
@@ -90,7 +89,7 @@ export function LlmPicker({ locked, available, directory, load, select, routable
         const efforts = groups.find(group => group.id === provider)?.models.find(entry => entry.id === model)?.reasoning
         const keep = current?.reasoningEffort !== undefined
           && efforts?.efforts.some(effort => effort.id === current.reasoningEffort) === true
-        const reasoningEffort = keep ? current?.reasoningEffort : efforts?.defaultEffort
+        const reasoningEffort = keep ? current.reasoningEffort : efforts?.defaultEffort
         choose({ provider, model, ...reasoningEffort === undefined ? {} : { reasoningEffort } })
         return true
       }} />

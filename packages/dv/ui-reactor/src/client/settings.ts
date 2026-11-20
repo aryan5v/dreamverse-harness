@@ -6,9 +6,11 @@ import { ReactorLogo } from './logo.tsx'
 
 interface Options {
   form: ConfigForm<ReactorSettings>
-  storeKey(ref: string, key: string): Promise<void>
-  discover(signal: AbortSignal): Promise<ReactorCatalog | Extract<CloudCatalogResult, { credentialError: string }>>
-  account(signal: AbortSignal): Promise<CloudAccount>
+  storeKey: (ref: string, key: string) => Promise<void>
+  removeKey: (ref: string) => Promise<void>
+  discover: (signal: AbortSignal) => Promise<ReactorCatalog | Extract<CloudCatalogResult, { credentialError: string }>>
+  account: (signal: AbortSignal) => Promise<CloudAccount>
+  verify: (apiKey: string, signal: AbortSignal) => Promise<CloudAccount>
 }
 
 const deployment = (entry: ReactorModelConfig): string => entry.modelId ?? `reactor/${entry.profile}`
@@ -18,11 +20,11 @@ const deployment = (entry: ReactorModelConfig): string => entry.modelId ?? `reac
  * @param options - the host configuration, key storage, and authenticated model catalog.
  * @returns the Reactor contribution.
  */
-export function reactorSettings({ form, storeKey, discover, account }: Options): CloudModelSettings {
+export function reactorSettings({ form, storeKey, removeKey, discover, account, verify }: Options): CloudModelSettings {
   let offers = new Map<string, ReactorCatalogModel>()
   return {
     id: 'reactor', name: 'Reactor', domain: 'reactor.inc', keyUrl: 'https://www.reactor.inc/dashboard',
-    logo: ReactorLogo, media: ['video'], account,
+    logo: ReactorLogo, media: ['video'], account, verify,
     settings: cloudSelection(form, state => ({
       writable: state.status === 'ready' && state.writable && state.value !== undefined,
       enabled: [...new Set(Object.values(state.value?.models ?? {}).map(deployment))]
@@ -44,6 +46,7 @@ export function reactorSettings({ form, storeKey, discover, account }: Options):
             : model.profile === undefined ? { unavailable: 'workflow' as const } : {}),
         })) }
     },
+    removeKey: async () => { await removeKey(form.getSnapshot().value?.credentialRef ?? 'REACTOR_API_KEY') },
     async setEnabled(model, enabled) {
       const state = form.getSnapshot()
       const models = state.value?.models ?? {}

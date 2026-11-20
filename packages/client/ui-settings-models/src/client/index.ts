@@ -32,14 +32,13 @@ import { Config, ONBOARDING_CONFIG_GLOBAL } from '../onboarding-config.ts'
 
 export type { ModelsSectionInjected, ModelsSectionProps } from './ModelsSection.tsx'
 export type { ModelsFooterOwnerProps, ModelsHeaderOwnerProps, ProviderCardExtrasOwnerProps } from './slot-contract.ts'
+// Credential-editing building blocks for a `settings.models.header` registrant that draws the provider list itself;
+// each export is documented at its declaration.
 export { CustomProviderCard } from './CustomProviderCard.tsx'
 export type { CustomProviderCardProps } from './CustomProviderCard.tsx'
 export { ProviderEditor } from './ProviderEditor.tsx'
 export type { ProviderEditorProps } from './ProviderEditor.tsx'
-export { deriveKeyRef, providerUsable, protocolChoices } from './store.ts'
-export { ModelsSettingsStore } from './store.ts'
-export { createModelsOperations } from './operations.ts'
-export { createSettingsSchemaOperations } from './schema-operations.ts'
+export { providerUsable, protocolChoices } from './store.ts'
 export type { ModelsKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {

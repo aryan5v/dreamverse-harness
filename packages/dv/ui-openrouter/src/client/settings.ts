@@ -1,19 +1,21 @@
 /** Adapt OpenRouter's configuration and catalog to the DreamVerse models table. */
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { OpenRouterCatalog, OpenRouterSettings } from '@dv/openrouter/types'
-import { cloudSelection, type CloudAccount, type CloudMedia, type CloudModelSettings } from '@dv/ui-kit/cloud-model-settings.ts'
+import { cloudSelection, type CloudAccount, type CloudCatalogResult, type CloudMedia, type CloudModelSettings } from '@dv/ui-kit/cloud-model-settings.ts'
 import { OpenRouterLogo } from './logo.tsx'
 
 interface Options {
   form: ConfigForm<OpenRouterSettings>
-  storeKey(ref: string, key: string): Promise<void>
-  discover(signal?: AbortSignal): Promise<OpenRouterCatalog>
-  enableOperator(ref: string): Promise<void>
+  storeKey: (ref: string, key: string) => Promise<void>
+  removeKey: (ref: string) => Promise<void>
+  discover: (signal?: AbortSignal) => Promise<OpenRouterCatalog | Extract<CloudCatalogResult, { credentialError: string }>>
+  enableOperator: (ref: string) => Promise<void>
   /** Stop the saved key from serving chat requests. */
-  disableOperator(): Promise<void>
+  disableOperator: () => Promise<void>
   /** Whether the chat route already carries this provider's key. */
-  operatorEnabled(): boolean
-  account(signal: AbortSignal): Promise<CloudAccount>
+  operatorEnabled: () => boolean
+  account: (signal: AbortSignal) => Promise<CloudAccount>
+  verify: (apiKey: string, signal: AbortSignal) => Promise<CloudAccount>
 }
 
 const fields = { video: 'models', image: 'imageModels', audio: 'audioModels' } as const
@@ -25,7 +27,7 @@ const media: readonly CloudMedia[] = ['video', 'image', 'audio']
  * @returns the OpenRouter contribution.
  */
 export function openRouterSettings({
-  form, storeKey, discover, enableOperator, disableOperator, operatorEnabled, account,
+  form, storeKey, removeKey, discover, enableOperator, disableOperator, operatorEnabled, account, verify,
 }: Options): CloudModelSettings {
   const settings = cloudSelection(form, state => ({
     writable: state.status === 'ready' && state.writable,
@@ -33,19 +35,17 @@ export function openRouterSettings({
       .map(id => ({ id, name: id, media: kind }))),
   }))
 
-  const saveKey = async (apiKey: string): Promise<string> => {
-    const ref = form.getSnapshot().value?.credentialRef ?? 'OPENROUTER_API_KEY'
-    if (apiKey !== '') await storeKey(ref, apiKey)
-    return ref
-  }
+  const keyRef = (): string => form.getSnapshot().value?.credentialRef ?? 'OPENROUTER_API_KEY'
 
   return {
     id: 'openrouter', name: 'OpenRouter', domain: 'openrouter.ai', keyUrl: 'https://openrouter.ai/settings/keys',
-    logo: OpenRouterLogo, media, settings, account,
+    logo: OpenRouterLogo, media, settings, account, verify,
     async load(apiKey, signal) {
-      await saveKey(apiKey)
+      if (apiKey !== '') await storeKey(keyRef(), apiKey)
       signal.throwIfAborted()
-      const { videos, images, speech, error } = await discover(signal)
+      const catalog = await discover(signal)
+      if ('credentialError' in catalog) return catalog
+      const { videos, images, speech, error } = catalog
       return {
         models: [
           ...videos.map(({ id, name }) => ({ id, name, media: 'video' as const })),
@@ -66,11 +66,11 @@ export function openRouterSettings({
         : Object.fromEntries(Object.entries(values).filter(([, id]) => id !== model.id))
       if (!await form.mutate([{ op: 'set', path: [field], value: next }], state.revision)) throw new Error('Settings write refused')
     },
-    async enableOperator(apiKey) {
-      const ref = await saveKey(apiKey)
-      await discover()
-      await enableOperator(ref)
+    removeKey: async () => {
+      if (operatorEnabled()) await disableOperator()
+      await removeKey(keyRef())
     },
+    enableOperator: async () => { await enableOperator(keyRef()) },
     disableOperator,
     operatorEnabled,
   }

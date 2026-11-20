@@ -26,7 +26,7 @@ The DreamVerse shell provides the home page, project workspace, navigator, chat 
 <a id="use-this-package"></a>
 ## Use this package
 
-Generation providers register their connection and catalog operations on `ctx.dvCloudModels`. **Settings → Models** displays the provider cards and one table for filtering and enabling models by source.
+Generation providers register a `CloudModelSettings` entry on `ctx.dvCloudModels` (see `@dv/ui-kit/cloud-model-settings.ts`); the shell provides that registry and draws it on the Models page of DSH. **Settings → Models** shows three groups. **Default models** holds the director LLM and the model that a new conversation starts on for each media type; a saved default that is no longer offered shows a warning with **Use Auto**. **Your connections** lists every registered generation provider in every state, each with a status line (Connected, Key rejected, Account unavailable, Setup needed with the provider's message, or Not connected), and the LLM providers that can serve a request. **Model catalog** is one table for filtering models by source and type and turning them on with **In picker**. Choose **Manage <name>** to save, replace, check, or remove a provider's key. A candidate key is checked with the provider before it is stored: a key that the provider rejects or cannot check is not stored and stays in the field, and a key whose account still needs setup is stored with the missing step shown. **Remove key** deletes the saved key; the models enabled for it stay enabled in the settings. Escape closes the open drawer or sheet, and the key form inside the drawer is not a second dialog.
 
 Mount the plugin in a profile that stacks `dsh-web-app` (which provides the sidebars, the session and Workspace services, and the client module loader) and `@dv/api` (which serves the routes the shell calls). Mount `@dv/ui-asset-pool` and `@dv/ui-history` too: the right-panel button and the right-panel guide open their tabs. Mount `@dv/ui-canvas` and `@dv/ui-timeline` as well: they register the 画布 and 时间线 views of the center. Mount `@dv/ui-media` too: its `dv.media` Factory draws the project covers. Build the browser bundle first: `pnpm run build` writes `lib/client.js`.
 
@@ -125,5 +125,7 @@ None; the shell sends nothing to a model.
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
+
+- **Balance shows what the provider reports** — the Balance column and the key sheet show `balanceUsd`, else the key's remaining spending limit, and a dash when the provider's account route reports neither.
 
 - **Hidden DSH chrome depends on DSH internals** — the shell finds the hidden controls by CSS Module class name suffixes and accessible labels, rewrites DSH dictionary entries, the host command fetcher, and the right panel's width preference through private fields, reads the left sidebar's fold state from a frame attribute, and replaces `uiWorkspace.startSession` and `workspaces.initializeDefault` on the services; a DSH change to any of them shows the chrome again or breaks the override without an error, except a missing `setRightbar` action, which logs a console warning.

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 /** First-run DeepSeek prompt behavior over the shared Models join. */
+import type { ReactNode } from 'react'
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -295,6 +296,38 @@ describe('DeepSeekOnboardingDialog', () => {
     await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
     expect(h.complete).toHaveBeenCalledOnce()
   })
+})
+
+it('offers the settings.models.sign-in slot in the first-run flow and falls back to the chooser', async () => {
+  const h = harness()
+  const owners: Array<{ complete: () => void; useApiKey: () => void }> = []
+  const slotNames: string[] = []
+  h.props.renderSlot = ((name: string, owner: { complete: () => void; useApiKey: () => void }, options?: { fallback?: ReactNode }) => {
+    slotNames.push(name)
+    owners.push(owner)
+    return options?.fallback
+  }) as DeepSeekOnboardingDialogProps['renderSlot']
+  render(<DeepSeekOnboardingDialog {...h.props} />)
+  // The slot is dispatched with the step's completion, and without a contributor its fallback is the chooser.
+  expect(await screen.findByRole('dialog', { name: en.onboardingChooseTitle })).toBeTruthy()
+  expect(slotNames).toEqual(['settings.models.sign-in'])
+  expect(owners[0]!.complete).toBe(h.complete)
+})
+
+it('moves from the account sign-in choice to the provider chooser through useApiKey', async () => {
+  const h = harness()
+  let owner: { useApiKey: () => void } | undefined
+  h.props.renderSlot = ((_name: string, props: { useApiKey: () => void }) => {
+    owner = props
+    return <div role="dialog" aria-label="account sign-in" />
+  }) as DeepSeekOnboardingDialogProps['renderSlot']
+  render(<DeepSeekOnboardingDialog {...h.props} />)
+  expect(await screen.findByRole('dialog', { name: 'account sign-in' })).toBeTruthy()
+  act(() => { owner!.useApiKey() })
+  expect(await screen.findByRole('dialog', { name: en.onboardingChooseTitle })).toBeTruthy()
+  expect(screen.queryByRole('dialog', { name: 'account sign-in' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: en.onboardingOpenModels }))
+  expect(h.openSection).toHaveBeenCalledWith('models')
 })
 
 it('explicit account-menu setup reuses the editor without another login choice', async () => {

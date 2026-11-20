@@ -107,6 +107,16 @@ describe('ui-skills apply', () => {
     expect(second.calls).toEqual([{ sessionId: 's2' }])
   })
 
+  it('reads and uploads the saved skills through the DreamVerse routes', async () => {
+    const answers = vi.fn(async (url: string) => Response.json(url.includes('upload') ? { name: 'mine', description: '', modelInvocable: true } : []))
+    vi.stubGlobal('fetch', answers)
+    const { registered } = await boot('s1')
+    const injected = registered[0]?.inject?.()
+    await expect(injected?.listMine?.()).resolves.toEqual([])
+    await expect(injected?.upload?.(new File(['x'], 'mine.md'))).resolves.toMatchObject({ name: 'mine' })
+    vi.unstubAllGlobals()
+  })
+
   it('lists no skill before any session exists, and rejects with the code and message of a failed read', async () => {
     const empty = await boot(undefined, {})
     await expect(empty.registered[0]?.inject?.().list()).resolves.toEqual([])

@@ -51,6 +51,7 @@
 - **托管与调度。** 每个条目都设置 `hosting`：由提供商运营服务器时为 `managed`，由用户运行服务器时为 `self-hosted`。只有在渲染接受显式 `worker` 时才设置 `workerRouting: true`。智能体从 `dv_models_list` 读取这两项，并遵循 `video-model-selection` skill 的[调度规则](../../packages/dv/models/skills/video-model-selection.md)，因此托管模型无需检查设备即可渲染。
 - **输出。** 视频渲染按顺序产出 `last_frame`、`video_start`、`chunk` 和 `done`，末帧来自 `dvFfmpeg.lastFrame`。图像条目返回 PNG 字节和像素尺寸，语音条目返回带时长的 WAV 片段；其他格式用 `dvFfmpeg` 转换。
 - **密钥。** 每次操作都在主机端解析密钥，不缓存，`Config` 中只保存其引用名称。不要把密钥放进 argv、子进程环境、日志或错误。通过 stdin 把它传给子进程，并用 `scrubbedParentEnv()` 启动子进程。带鉴权的请求使用 `redirect: 'error'`，并且从不记录签名 URL。
+- **账户状态。** 需要凭据的提供方通过 `@dv/models` 的 `registerAccountRoute` 实现账户检查：`GET /api/dv/<provider>/account` 检查已保存的密钥，`POST` 以 `{ "key": "..." }` 在保存前验证候选密钥，两者都带 `Cache-Control: no-store` 且从不回显密钥。主机缺少渲染所需的本地运行时（例如 SDK）时，检查返回带可操作说明的 `needs-setup`。目录路由通过 `catalogMissingKey` 和 `catalogFailure` 实现：没有密钥时返回 503，提供方拒绝密钥时返回 401，其他情况返回 502。参见[账户状态路由](../../packages/dv/models/README.zh.md#share-the-account-status-route)。
 - **取消与计费。** 把中止信号传给每个请求，并以 `signal.reason` 拒绝。提供商没有取消路由时，在 schema 中声明 `cancellation: 'monitoring_only'`，并在描述中说明停止不会取消付费任务。付费请求只发送一次，绝不自动重试。
 - **失败。** 配置错误在加载时或在能解析的最早时刻明确失败。提供商不再提供的已配置模型会被跳过并列出，不会被悄悄丢弃。
 
@@ -73,6 +74,11 @@
 - 在 [cordis.patch.yml](../../packages/bundle/dv/cordis.patch.yml) 中添加行 `dv-<provider>` 并让 `models` 为空，同时在套件 `package.json` 中添加依赖。
 - 在 `tsconfig.base.json` 的 paths 中添加 `@dv/<provider>` 条目，并在 `tsconfig.host.json` 中添加引用。
 - 把插件加入 [bundle.ts](../../packages/bundle/dv/tests/bundle.ts) 的 `PLUGINS`，并在 `composition.spec.ts` 中覆盖该行。
+
+<a id="settings-card"></a>
+### 设置卡片
+
+需要 API 密钥的官方内置提供商要提供一个客户端包 `@dv/ui-<provider>`，在 `ctx.dvCloudModels` 上注册一个 `CloudModelSettings` 条目（[`@dv/ui-kit/cloud-model-settings.ts`](../../packages/dv/ui-kit/src/client/cloud-model-settings.ts)）。条目给出提供商的 `id`、`name`、`domain`、`keyUrl`、`logo`、`media`，以及各项操作：`account` 读取 `GET /api/dv/<provider>/account`，`verify` 把候选密钥 POST 到同一路由而不保存，`load` 保存已验证的密钥并读取 `GET /api/dv/<provider>/catalog`，`removeKey` 删除密钥。`@dv/ui-shell` 把该条目显示在 **设置 → 模型** 中，所以提供商不需要自己的页面，共享界面中也不写死提供商名称：显示名称来自该条目。像 [cordis.patch.yml](../../packages/bundle/dv/cordis.patch.yml) 中的 `dv-ui-reactor` 那样把该包挂载到套件中。[`@dv/ui-reactor`](../../packages/dv/ui-reactor/README.zh.md) 是模板。
 
 <a id="8-maintain-first-party-support"></a>
 ## 8. 维护官方内置支持

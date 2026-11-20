@@ -25,7 +25,6 @@
 .trigger:disabled { opacity: 0.5; cursor: default; }
 .trigger:focus-visible { outline: 2px solid var(--dsw-alias-label-primary); outline-offset: 1px; }
 
-.triggerKind { color: var(--dsw-alias-label-tertiary); }
 .triggerIcon { display: inline-flex; }
 
 .triggerValue {
@@ -189,6 +188,15 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.note {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tag {

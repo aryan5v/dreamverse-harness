@@ -22,12 +22,12 @@ Connect your Reactor account in DreamVerse Settings. Load the models your accoun
 <a id="use-this-package"></a>
 ## Use this package
 
-The DreamVerse Web profile contributes the Reactor card and model catalog to **Settings → Models**. Follow the [provider setup](../reactor/README.md) for the host SDK and model profiles.
+The DreamVerse Web profile contributes the Reactor row to **Settings → Models**. Choose **Manage Reactor** under **Your connections** to save, check, or remove the key, and turn Reactor video models on in the **Model catalog** table. Reactor checks a key (`POST /api/dv/reactor/account`) before it is stored. Follow the [provider setup](../reactor/README.md) for the host SDK and model profiles. This package is the template for the settings card of a first-party provider that needs a key; see the [provider guide](../../../docs/cookbook/adding-a-dreamverse-provider.md#settings-card).
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-The browser sends the key through the credential service. The page reads the account model list from the host and saves only model selections through the settings form.
+The browser sends a candidate key to the account route for checking, then through the credential service once Reactor accepts it, and **Remove key** deletes it through the same service. The page reads the account model list from the host and saves only model selections through the settings form. A catalog answer of 401 reads as a rejected key and 503 as a missing key, the same as for every provider.
 
 <a id="model-experience"></a>
 ## Model Experience

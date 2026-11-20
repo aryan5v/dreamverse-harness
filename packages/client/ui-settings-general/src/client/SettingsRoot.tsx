@@ -1,10 +1,10 @@
 /**
- * Settings shell root: the sidebar-foot trigger row plus the centered modal
- * panel (figma 2552:26025, 760x500) with the section nav rail. The shell is
+ * Settings shell root: the sidebar-foot trigger row plus the full-screen
+ * panel with the section nav rail. The shell is
  * a pure composition face — slot-owned text (trigger label, panel title,
  * close label, sections) arrives from registrants through slots; accessible
  * names resolve from localized content (trigger: shell locale; dialog:
- * aria-labelledby the title node; close: visually-hidden slot text). Modal
+ * aria-labelledby the title node; close: visually-hidden slot text). Panel
  * open state and the active section id are component-local viewing state;
  * the onboarding coordinator mounts exactly one ordered registrant while the
  * sessions-derived empty-Hero fact is active. Visible dialog chrome belongs
@@ -45,6 +45,17 @@ type PanelProps = {
   onClose: () => void
 }
 
+/**
+ * The full-screen settings layer: a fixed panel covering the viewport, with the
+ * section nav on the left and the header plus active section on the right.
+ * There is no mask, so the only close paths are the header close control and
+ * document-level Escape (mounted only while open, so the listener lifetime is
+ * the panel's). The panel pads its top by the frame's published
+ * `--dsh-frame-top-clearance` so the nav and close control stay out of the
+ * macOS window drag strip.
+ * @param props - section rows, the slot renderer, the active section id, and the select and close callbacks.
+ * @returns the dialog panel.
+ */
 function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelProps) {
   // Entries can unmount underneath the requested id, so the render-time
   // projection falls back to the first row when the id is gone.

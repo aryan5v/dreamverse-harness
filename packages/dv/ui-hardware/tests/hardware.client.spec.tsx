@@ -195,3 +195,43 @@ it('keeps an existing worker credential intact and removes only a refused saveâ€
   expect(screen.getByLabelText('API key').getAttribute('value')).toBe('new-fixture-token')
   expect(screen.getByRole('alert').textContent).toContain('changed')
 })
+
+it('unloads a resident model, reports a refused model action, and shows an empty catalog note', async () => {
+  const action = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('device busy'))
+  const catalog = vi.fn().mockResolvedValue([{ id: 'omni', tasks: [], installed: true, loaded: true }])
+  const routing = form({ useHardware: false })
+  render(<HardwarePage models={{ catalog, action }} removeCredential={async () => {}}
+    runpodPods={async () => []} form={form({ workers: { workstation: saved } })} routing={routing}
+    check={async () => [state]} storeCredential={async () => {}} />)
+  await act(async () => {})
+  fireEvent.click(screen.getByRole('button', { name: /Workstation/ }))
+  await act(async () => {})
+  fireEvent.click(screen.getByRole('button', { name: 'Unload' }))
+  await act(async () => {})
+  expect(action).toHaveBeenCalledWith('workstation', 'unload', 'omni', '')
+  fireEvent.click(screen.getByRole('button', { name: 'Unload' }))
+  await act(async () => {})
+  expect(screen.getByRole('alert').textContent).toContain('device busy')
+  fireEvent.click(screen.getByRole('switch', { name: /Use configured workers for FastVideo/ }))
+  expect(routing.set).toHaveBeenCalledWith('useHardware', true)
+  vi.mocked(routing.set).mockResolvedValueOnce(false)
+  fireEvent.click(screen.getByRole('switch', { name: /Use configured workers for FastVideo/ }))
+  await act(async () => {})
+  vi.mocked(routing.set).mockRejectedValueOnce(new Error('offline'))
+  fireEvent.click(screen.getByRole('switch', { name: /Use configured workers for FastVideo/ }))
+  await act(async () => {})
+  expect(screen.getByRole('alert').textContent).toContain('offline')
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }))
+  await act(async () => {})
+  expect(catalog).toHaveBeenCalledTimes(3)
+})
+
+it('shows the empty model note for a device with no installed models', async () => {
+  render(<HardwarePage models={noModels} removeCredential={async () => {}}
+    runpodPods={async () => []} form={form({ workers: { workstation: saved } })} routing={form({ useHardware: false })}
+    check={async () => []} storeCredential={async () => {}} />)
+  await act(async () => {})
+  fireEvent.click(screen.getByRole('button', { name: /Workstation/ }))
+  await act(async () => {})
+  expect(screen.getByText('No installed models found')).toBeTruthy()
+})

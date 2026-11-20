@@ -40,7 +40,7 @@ DreamVerse bundle [`@dv/bundle`](../../bundle/dv/README.zh.md) 以行 `dv-models
   name: '@dv/models'
 ```
 
-本插件没有配置字段。
+插件有两个配置字段。`defaults` 把模态映射到新对话开始时使用的 `{ provider, model }`，例如 `defaults.video`。修改后无需重新加载插件即可生效。DreamVerse composer 从设置读取它，并在客户端界面打开没有选择的对话时，把每个默认值作为该对话的 `models.select` 选择记录一次；缺少的模态从自动开始。目录本身不读取 `defaults`，因此通过 SDK 或无界面运行创建的会话不会应用它。`catalogSchemaTimeoutMs`（默认 5000）是 `catalog()` 等待单个条目 `schema()` 的时长，超时后该条目以空 schema 列出。
 
 <a id="model-keys"></a>
 ### 模型键
@@ -169,6 +169,25 @@ DreamVerse bundle [`@dv/bundle`](../../bundle/dv/README.zh.md) 以行 `dv-models
 
 [`@dv/reactor`](../reactor/README.zh.md) 使用 `syncModelEntries`，[`@dv/openrouter`](../openrouter/README.zh.md) 使用 `syncModelEntriesAsync`。
 
+<a id="share-the-account-status-route"></a>
+### 共用账户状态路由
+
+需要凭据的提供方通过 `registerAccountRoute(ctx, options)` 报告凭据状态，而不是自己写路由代码。该调用把 `GET` 和 `POST /api/dv/<provider>/account` 作为调用方插件的 effect 注册到 `connection.fetch`。两者都返回 `AccountStatus`（由 `@dv/models/types` 导出，客户端可以读取），并带 `Cache-Control: no-store`。
+
+| `status` | 含义 |
+| --- | --- |
+| `missing` | 主机没有保存密钥。不调用提供方。 |
+| `rejected` | 提供方拒绝了密钥（`options.isRejected(error)` 为真）。 |
+| `unavailable` | 检查没有得出结论：网络失败、超时，或密钥引用无法读取。 |
+| `needs-setup` | 主机无法运行渲染。`message` 告诉用户要安装什么。检查抛出 `AccountNeedsSetupError` 即返回此状态。 |
+| `connected` | 提供方接受了密钥。`balanceUsd`、`label` 和 `limitRemainingUsd` 是数字或字符串；提供方不报告时为 null。路由会丢弃包含密钥的 `label`。 |
+
+`GET` 检查 `options.savedKey()` 返回的已保存密钥。`POST` 接收 JSON 请求体 `{ "key": "<candidate>" }`，检查该密钥但不保存，所以 Settings 可以在保存前验证密钥。请求体必须恰好是这个对象，密钥为 1 到 `MAX_ACCOUNT_KEY_LENGTH`（512）个可打印 ASCII 字符，整个请求体至多 4096 个字符。其他请求体返回 400 和 `{ "error": ... }`，且不重复请求体。每次检查都受 `options.timeoutSeconds` 和请求信号约束。两个路由都不记录也不回显密钥，提供方的 `check` 也不得把密钥放进 argv、环境变量或日志。
+
+`catalogMissingKey(label)` 和 `catalogFailure(label, rejected)` 构造提供方目录路由的响应：没有密钥时为 503 `{ "error": "Set the <label> API key on the host." }`，提供方拒绝密钥时为 401 `{ "error": "<label> rejected the API key." }`，其他失败为 502 `{ "error": "Could not load <label> models. Check the API key and connection." }`。客户端据此区分任何提供方的“密钥被拒绝”和“无法连接”。
+
+[`@dv/reactor`](../reactor/README.zh.md) 和 [`@dv/openrouter`](../openrouter/README.zh.md) 都使用它们。
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -188,7 +207,8 @@ DSH skill 注册表（`skills`）挂载期间，本服务从 `skills/video-model
 | 文件 | 内容 |
 | --- | --- |
 | [`src/index.ts`](src/index.ts) | `Config`、`formatModelKey`、`modelKey`、`servesTask`、`renderTimings`、`DvModels` 服务和两个工具 |
-| [`src/types.ts`](src/types.ts) | `PrimitiveTypes`、`PrimitiveId`、`TaskMap`、`ModalityId`、`TaskOfPrimitive`、`ModelKey`、`RenderModelFacts`、`RenderRequest`、`RenderStreamEvent`、`ModelEntry`、`ModelFilter` |
+| [`src/account.ts`](src/account.ts) | `registerAccountRoute`、`AccountNeedsSetupError`、`catalogMissingKey`、`catalogFailure` |
+| [`src/types.ts`](src/types.ts) | `PrimitiveTypes`、`PrimitiveId`、`TaskMap`、`ModalityId`、`TaskOfPrimitive`、`ModelKey`、`RenderModelFacts`、`RenderRequest`、`RenderStreamEvent`、`ModelEntry`、`ModelFilter`、`AccountStatus`、`AccountDetails` |
 | [`skills/video-model-selection.md`](skills/video-model-selection.md) | 模型选择 skill |
 | [`tests/models.spec.ts`](tests/models.spec.ts) | Loader 组合中的模型目录、工具、skill 和系统提示词 |
 
@@ -292,6 +312,8 @@ skill 注册表挂载期间，目录中约 40 个 token。agent 每次加载该 
 ## 已知限制与延期工作
 
 <a id="known-limitations-and-deferred-work"></a>
+
+- **默认值只在客户端界面生效** — `defaults` 在 DreamVerse composer 于客户端界面打开没有选择的对话时应用；通过 SDK 或无界面运行创建的会话从自动开始。在创建对话时由主机端写入默认值是延期工作。
 
 以下限制适用于模型目录、两个工具和选择 skill。
 

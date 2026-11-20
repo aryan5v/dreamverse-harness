@@ -4,7 +4,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ImageModel, OpenRouterCatalog, OpenRouterSettings, SpeechModel, VideoModel } from '@dv/openrouter/types'
-import { fetchCloudAccount } from '@dv/ui-kit/cloud-model-settings.ts'
+import { fetchCloudAccount, fetchCloudCatalog, verifyCloudKey } from '@dv/ui-kit/cloud-model-settings.ts'
 import { openRouterSettings } from './settings.ts'
 
 export const inject = ['dvCloudModels', 'configForms', 'remote', 'remote.credentials']
@@ -12,6 +12,10 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.dvCloudModels.register(openRouterSettings({
     form: ctx.configForms.get<OpenRouterSettings>('dv-openrouter'),
     account: signal => fetchCloudAccount('/api/dv/openrouter/account', signal),
+    verify: (key, signal) => verifyCloudKey('/api/dv/openrouter/account', key, signal),
+    removeKey: async (ref: string) => {
+      if (!(await ctx.remote.credentials.unset(ref)).ok) throw new Error('Could not remove the API key.')
+    },
     enableOperator: async (ref: string) => {
       const form = ctx.configForms.get<{ providers: Record<string, Record<string, unknown>> }>('llm-pi-ai')
       const state = form.getSnapshot()
@@ -36,11 +40,11 @@ export function apply(ctx: Context): void {
     storeKey: async (ref: string, key: string) => {
       if (!(await ctx.remote.credentials.set(ref, key)).ok) throw new Error('Could not store the API key.')
     },
-    discover: async (signal): Promise<OpenRouterCatalog> => {
-      const response = await fetch('/api/dv/openrouter/catalog', { signal: signal ?? null })
-      if (!response.ok) throw new Error('OpenRouter model discovery failed.')
-      const value = await response.json() as { data: VideoModel[]; images: ImageModel[]; speech: SpeechModel[]; error: string | null }
-      return { videos: value.data, images: value.images, speech: value.speech, error: value.error }
+    discover: async (signal) => {
+      const value = await fetchCloudCatalog<{ data: VideoModel[]; images: ImageModel[]; speech: SpeechModel[]; error: string | null }>(
+        '/api/dv/openrouter/catalog', signal)
+      if ('credentialError' in value) return value
+      return { videos: value.data, images: value.images, speech: value.speech, error: value.error } satisfies OpenRouterCatalog
     },
   })), 'openrouter: cloud model settings')
 }

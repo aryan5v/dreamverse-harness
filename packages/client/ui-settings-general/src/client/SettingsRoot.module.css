@@ -65,6 +65,9 @@
   overflow: hidden;
   box-sizing: border-box;
   padding: 8px;
+  /* Keeps the frame's published top clearance (the macOS window strip, where
+     clicks drag the window) as the top viewport margin. */
+  padding-block-start: max(8px, var(--dsh-frame-top-clearance, 8px));
   background: var(--dsw-alias-bg-layer-1);
   /* Elevated surface: the scrollbar thumb takes the l2 elevation tokens.
      Declared on the panel rather than the scrolling `.options` child so the
@@ -232,12 +235,11 @@
 /* macOS: overlays covering the window drag bands must subtract themselves
    (Electron app-regions are geometry, not stacking). */
 :global([data-platform='darwin']) .panel {
-  padding-block-start: var(--dsh-frame-top-clearance, 0px);
   -webkit-app-region: no-drag;
 }
 
 @media (max-width: 640px) {
-  .panel { padding: 0; gap: 0; }
+  .panel { padding: 0; padding-block-start: var(--dsh-frame-top-clearance, 0px); gap: 0; }
   .nav { width: 124px; padding-inline: 6px; }
   .navCell { padding-inline: 8px; }
   .content { border-radius: 0; border-block: none; border-inline-end: none; }

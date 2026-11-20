@@ -37,7 +37,7 @@ it('loads all three media catalogs through one provider and stores only the key 
   const disableOperator = vi.fn(async () => {})
   const provider = openRouterSettings({
     form, storeKey, discover, enableOperator, disableOperator, operatorEnabled: () => false,
-    account: async () => ({ status: 'missing' }),
+    account: async () => ({ status: 'missing' }), removeKey: async () => {}, verify: async () => ({ status: 'missing' }),
   })
   const signal = new AbortController().signal
   const catalog = await provider.load('fixture-key', signal)
@@ -52,7 +52,7 @@ it('loads all three media catalogs through one provider and stores only the key 
     imageModels: { 'black-forest-labs-flux-3-image': image.id }, audioModels: { 'openai-gpt-4o-mini-tts': speech.id } })
   expect(provider.settings.getSnapshot().enabled).toHaveLength(3)
   expect(JSON.stringify(form.mutate.mock.calls)).not.toContain('fixture-key')
-  await provider.enableOperator?.('')
+  await provider.enableOperator?.()
   expect(enableOperator).toHaveBeenCalledWith('OPENROUTER_API_KEY')
   await provider.disableOperator?.()
   expect(disableOperator).toHaveBeenCalledOnce()
@@ -66,9 +66,36 @@ it('keeps saved selections available for removal even when they are missing from
   const provider = openRouterSettings({
     form, storeKey: async () => {}, discover: async () => ({ ...both, error: warning }), enableOperator: async () => {},
     disableOperator: async () => {}, operatorEnabled: () => false, account: async () => ({ status: 'missing' }),
+    removeKey: async () => {}, verify: async () => ({ status: 'missing' }),
   })
   expect(await provider.load('', new AbortController().signal)).toMatchObject({ warning })
   const retired = provider.settings.getSnapshot().enabled.find(row => row.id === 'example/retired-video')!
   await provider.setEnabled(retired, false)
   expect(form.getSnapshot().value?.models).toEqual({ veo: model.id })
+})
+
+it('turns the chat route off before it deletes a key the route uses, and passes a credential error through', async () => {
+  const form = new Form()
+  const order: string[] = []
+  const provider = openRouterSettings({
+    form, storeKey: async () => {}, discover: async () => ({ credentialError: 'missing' }), enableOperator: async () => {},
+    disableOperator: async () => { order.push('operator') }, operatorEnabled: () => true,
+    account: async () => ({ status: 'missing' }), removeKey: async (ref) => { order.push(`remove ${ref}`) },
+    verify: async () => ({ status: 'rejected' }),
+  })
+  expect(await provider.load('', new AbortController().signal)).toEqual({ credentialError: 'missing' })
+  await provider.removeKey()
+  expect(order).toEqual(['operator', 'remove OPENROUTER_API_KEY'])
+  expect(await provider.verify('candidate', new AbortController().signal)).toEqual({ status: 'rejected' })
+})
+
+it('leaves the chat route alone when deleting a key it does not use', async () => {
+  const disableOperator = vi.fn(async () => {})
+  const provider = openRouterSettings({
+    form: new Form(), storeKey: async () => {}, discover: async () => both, enableOperator: async () => {},
+    disableOperator, operatorEnabled: () => false, account: async () => ({ status: 'missing' }),
+    removeKey: async () => {}, verify: async () => ({ status: 'missing' }),
+  })
+  await provider.removeKey()
+  expect(disableOperator).not.toHaveBeenCalled()
 })

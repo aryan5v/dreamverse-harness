@@ -73,6 +73,14 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.settingText .staleWarning {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--dsw-alias-state-warning-primary, #d29922);
+}
+
 .picker {
   display: inline-flex;
   align-items: center;
