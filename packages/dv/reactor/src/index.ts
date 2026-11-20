@@ -1,5 +1,5 @@
 /** Register Reactor video models through the DreamVerse model catalog. */
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context, Volatile } from '@deepseek-ai/cordis'
@@ -12,9 +12,10 @@ import type {} from '@dv/ffmpeg'
 import { assertModelAlias, catalogFailure, catalogMissingKey, registerAccountRoute, syncModelEntries, type ModelEntry, type RenderModelFacts, type RenderRequest, type RenderStreamEvent } from '@dv/models'
 import { citedAsset, citedInput, replacePromptCitations, type AssetId } from '@dv/project'
 import { checkAccess, listModels, ReactorCatalogError, readBalance } from './catalog.ts'
-import { capture, type Upload } from './client.ts'
+import { capture, type ClipRequest, type Upload } from './client.ts'
+import { generateClip } from './generations.ts'
 import type { ReactorModelConfig } from './types.ts'
-import { profileFor, profiles, type ProfileName } from './profiles.ts'
+import { profileFor, profiles, type ProfileName, type Workflow } from './profiles.ts'
 import { checkSdk } from './setup.ts'
 
 type ModelConfig = Omit<ReactorModelConfig, 'profile' | 'durationsSec'> & {
@@ -30,20 +31,23 @@ const catalogProfiles = new Map(profileNames.map(key => [profiles[key].modelId, 
 
 /** Host runtime, credential reference, and model aliases for the Reactor provider. */
 export interface Config {
-  /** Python interpreter on the DreamVerse host with reactor-sdk installed. */
+  /** Python interpreter on the DreamVerse host with reactor-sdk installed; only models that stream through the SDK use it. */
   pythonPath: string
   /** Name resolved by the harness credential store for each render. */
   credentialRef: string
   /**
-   * Maximum lifetime of one paid Reactor session, in seconds: connection, upload, generation, real-time playback or
-   * streaming, capture and download. Registered durations are shorter than this value.
+   * Maximum lifetime of one paid Reactor render, in seconds. A Clip Generation render spans upload, generation and
+   * download; an SDK session spans connection, upload, generation, streaming, capture and download. Registered
+   * durations are shorter than this value.
    */
   timeoutSeconds: number
   /**
-   * HTTPS origin of the Reactor API. It serves the model catalog, the PixVerse saved-step downloads, and the SDK
-   * session (`api_url`).
+   * HTTPS origin of the Reactor API. It serves the model catalog, Clip Generation requests, the PixVerse saved-step
+   * downloads, and the SDK session (`api_url`).
    */
   apiBaseUrl: string
+  /** Wait between Clip Generation status polls, in milliseconds, unless Reactor sends a longer `Retry-After`. */
+  pollIntervalMs: number
   /** Deadline for one model catalog request, in seconds. */
   catalogTimeoutSeconds: number
   /** Keys are DreamVerse aliases. Each names a published Reactor command schema. */
@@ -56,6 +60,7 @@ export const Config = z.object({
   credentialRef: z.string().default('REACTOR_API_KEY'),
   timeoutSeconds: z.natural().min(1).max(3600).default(360),
   apiBaseUrl: z.string().default('https://api.reactor.inc'),
+  pollIntervalMs: z.natural().min(1).max(60_000).default(5000),
   catalogTimeoutSeconds: z.natural().min(1).max(300).default(30),
   models: z.dict(z.object({
     profile: z.union(profileNames).required(),
@@ -154,7 +159,9 @@ export function apply(ctx: Context, config: Config): void {
     provider: 'reactor', description: 'Reactor account status', timeoutSeconds: config.catalogTimeoutSeconds,
     savedKey: async () => (await ctx.credentials.resolve(keyRef))?.value,
     check: async (key, signal) => {
-      await checkSdk(config.pythonPath, signal, config.catalogTimeoutSeconds)
+      if (configured().some(entry => entry.profile.workflow.kind !== 'generation')) {
+        await checkSdk(config.pythonPath, signal, config.catalogTimeoutSeconds)
+      }
       await checkAccess(key, signal, apiBaseUrl)
       return { ...await readBalance(key, signal, apiBaseUrl), limitRemainingUsd: null }
     },
@@ -172,12 +179,24 @@ export function apply(ctx: Context, config: Config): void {
     path: ctx.dvAssetPool.path(asset), mime: mimeOf(asset), name: ctx.dvAssetPool.get(asset).name,
   })
 
+  const generateToFile = async (
+    dir: string, apiKey: string, workflow: Extract<Workflow, { kind: 'generation' }>, clip: ClipRequest, signal: AbortSignal,
+  ) => {
+    const { kind: _kind, ...fields } = workflow
+    const { bytes, timings } = await generateClip({
+      apiBaseUrl, apiKey, model: clip.model, fields, request: clip, pollMs: config.pollIntervalMs, timeoutSeconds: config.timeoutSeconds,
+    }, signal)
+    const recording = join(dir, 'generated.mp4')
+    await writeFile(recording, bytes, { signal })
+    return { recording, timings }
+  }
+
   const entries = ({ alias, profile, facts }: ReturnType<typeof configured>[number]): ModelEntry[] => {
     const { workflow, references } = profile
     const limits = countLimits(profile)
     const durations = facts.durationsSec
     const maxMiB = profile.maxUploadMiB ?? 25
-    const hasScene = workflow.kind === 'take' || (workflow.kind === 'queue' && workflow.world === true)
+    const hasScene = workflow.kind === 'take' || workflow.kind === 'queue'
 
     return profile.tasks.map((task): ModelEntry<typeof task> => {
       const first = task === 'i2v' || task === 'fl2v'
@@ -276,7 +295,7 @@ export function apply(ctx: Context, config: Config): void {
             const index = assets[kind].indexOf(asset)
             if (index < 0) continue
             const label = `${MEDIA_LABEL[kind]} ${index + 1 + (kind === 'audio' ? audioOffset : 0)}`
-            if (workflow.kind === 'queue' && workflow.world === true) return citation.label
+            if (workflow.kind === 'queue') return citation.label
             return profile.labels === 'plain' ? label : `<${label}>`
           }
           return citation.label
@@ -285,14 +304,17 @@ export function apply(ctx: Context, config: Config): void {
         const scene = request.extra['scene']
         const dir = await mkdtemp(join(tmpdir(), 'dv-reactor-'))
         try {
-          const { recording, timings } = await capture(config.pythonPath, dir, credential.value, config.timeoutSeconds, {
+          const clip: ClipRequest = {
             apiBaseUrl, model: facts.modelId, workflow, aspect: aspectRatio, resolution, seconds: durationSec, prompt,
             ...profile.seed === false ? {} : { seed: request.seed },
             ...typeof scene === 'string' ? { scene } : {},
             images: assets.image.map(toUpload), audio: assets.audio.map(toUpload), videos: assets.video.map(toUpload),
             ...request.firstFrame === null ? {} : { firstFrame: toUpload(request.firstFrame) },
             ...request.lastFrame === null ? {} : { lastFrame: toUpload(request.lastFrame) },
-          }, signal)
+          }
+          const { recording, timings } = workflow.kind === 'generation'
+            ? await generateToFile(dir, credential.value, workflow, clip, signal)
+            : await capture(config.pythonPath, dir, credential.value, config.timeoutSeconds, clip, signal)
           signal.throwIfAborted()
           await ctx.dvFfmpeg.run({
             argv: ['ffmpeg', '-y', '-loglevel', 'error', '-i', '{{in:0}}', '-map', '0:v:0', '-map', '0:a:0?', '-c', 'copy',
@@ -314,7 +336,9 @@ export function apply(ctx: Context, config: Config): void {
 
       return {
         modality: 'video', provider: 'reactor', hosting: 'managed', model: alias, task, displayName: profile.name,
-        description: `${profile.name} on Reactor. Reactor bills for the session lifetime.`
+        description: `${profile.name} on Reactor. ${workflow.kind === 'generation'
+          ? 'Reactor runs the clip as a Clip Generation request; cancelling asks Reactor to cancel it.'
+          : 'Reactor bills for the session lifetime.'}`
           + (workflow.kind === 'take' ? ' Give the avatar photo as the first frame and the spoken script as the prompt.' : '')
           + (useReferences && references?.imageRequired === true ? ' Include at least one reference image.' : ''),
         facts: () => Promise.resolve(facts),

@@ -142,11 +142,19 @@ describe('Reactor account route', () => {
     const fetch = vi.fn<typeof globalThis.fetch>()
     vi.stubGlobal('fetch', fetch)
     const python = brokenPython()
-    const body = await (await (await accountRoute({ pythonPath: python })).get()).json() as { status: string; message: string }
+    const models = { quick: { profile: 'fast-h3' }, streamed: { profile: 'ltx2' } }
+    const body = await (await (await accountRoute({ pythonPath: python, models })).get()).json() as { status: string; message: string }
     expect(body.status).toBe('needs-setup')
     expect(body.message).toContain(python)
     expect(body.message).toContain("python3 -m pip install 'reactor-sdk==1.15.0'")
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('skips the SDK check and connects when every configured model uses Clip Generation', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json([])))
+    const models = { quick: { profile: 'fast-h3' }, omni: { profile: 'fast-h3-omni' } }
+    const response = await (await accountRoute({ pythonPath: brokenPython(), models })).get()
+    expect(await response.json()).toEqual(connected)
   })
 
   it('answers missing, not needs-setup, when the key is absent and the interpreter is broken', async () => {

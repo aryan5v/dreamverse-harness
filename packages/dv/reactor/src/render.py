@@ -58,7 +58,7 @@ async def render(request, phase):
     messages = asyncio.Queue()
     workflow = request["workflow"]
     events = {
-        "clip_generated", "clip_failed", "clip_finished", "clip_stopped",
+        "clip_generated", "clip_failed", "clip_stopped",
         "generation_complete", "generation_failed",
     }
     if workflow["kind"] == "chunks":
@@ -92,50 +92,24 @@ async def render(request, phase):
     async def upload(asset):
         return await reactor.upload_file(asset["path"], name=asset["name"], mime_type=asset["mime"])
 
-    async def queue(workflow):
-        video_settings = {"aspect": request["aspect"]}
-        if workflow.get("resolution"):
-            await reactor.send_command("set_resolution", {"resolution": request["resolution"]})
-        if not workflow.get("world"):
-            canvas = await reactor.send_command("set_canvas", video_settings)
-            if not canvas or canvas["type"] != "canvas_accepted":
-                raise ClipError("Reactor did not confirm the requested aspect ratio.")
-            await reactor.send_command("set_flush_on_clip_end", {"enabled": False})
-
+    async def queue():
+        """PixVerse builds a world, queues one clip, and saves the finished MP4 as a step of the session."""
         data = {"prompt": request["prompt"], "seconds": request["seconds"]}
-        if "seed" in request:
-            data["seed"] = request["seed"]
-        for key, field in (
-            ("images", "reference_images"), ("audio", "reference_audios"), ("videos", "reference_videos")
-        ):
-            if request[key]:
-                data[field] = [await upload(asset) for asset in request[key]]
-        for key, role in (("firstFrame", "first"), ("lastFrame", "last")):
-            if key in request:
-                data[workflow[role]] = await upload(request[key])
-        if workflow.get("world"):
-            world = {
-                "prompt": request.get("scene") or request["prompt"],
-                "aspect_ratio": request["aspect"],
-            }
-            if "reference_images" in data:
-                world["reference_images"] = data.pop("reference_images")
-            await reactor.send_command("create_world", world)
+        world = {
+            "prompt": request.get("scene") or request["prompt"],
+            "aspect_ratio": request["aspect"],
+        }
+        if request["images"]:
+            world["reference_images"] = [await upload(asset) for asset in request["images"]]
+        await reactor.send_command("create_world", world)
 
         phase("generation")
         queued = await reactor.send_command("enqueue", data)
         if not queued or queued["type"] != "clip_queued":
             raise ClipError("Reactor did not confirm the clip enqueue.")
-        clip_id = queued["data"]["clip"]["clip_id"]
-        await wait_for_clip("clip_generated", clip_id)
-        if workflow.get("world"):
-            phase("download")
-            await download_saved_clip(reactor.session_id, request)
-            return None
-        phase("playback")
-        await reactor.send_command("play", {"clip_id": clip_id})
-        finished = await wait_for_clip("clip_finished", clip_id)
-        return finished["seconds"]
+        await wait_for_clip("clip_generated", queued["data"]["clip"]["clip_id"])
+        phase("download")
+        await download_saved_clip(reactor.session_id, request)
 
     async def take():
         await reactor.send_command("set_avatar_image", {"avatar_image": await upload(request["firstFrame"])})
@@ -188,7 +162,8 @@ async def render(request, phase):
         await reactor.connect()
         phase("setup")
         if workflow["kind"] == "queue":
-            seconds = await queue(workflow)
+            await queue()
+            seconds = None
         elif workflow["kind"] == "take":
             seconds = await take()
         else:

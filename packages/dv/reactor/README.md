@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Generate DreamVerse shots with Reactor. Choose a model for text, supported reference assets, keyframes, or scripted avatar video. DreamVerse saves the clip and a PNG of its last frame. Reactor bills for the session lifetime.
+Generate DreamVerse shots with Reactor. Choose a model for text, supported reference assets, keyframes, or scripted avatar video. DreamVerse saves the clip and a PNG of its last frame. FastH3, FastH3-Omni, H3 Reference Turbo Realtime, and Pika H3 Flex use Reactor's Clip Generation HTTP API. The other models stream through a Reactor SDK session, which Reactor bills for its lifetime.
 
 ## Table of Contents
 
@@ -27,7 +27,7 @@ Generate DreamVerse shots with Reactor. Choose a model for text, supported refer
 
 Set `REACTOR_API_KEY` in the DreamVerse host's credential store or environment. In the profile's `cordis.patch.yml`, add the model aliases you want to enable. The DreamVerse bundle starts with an empty model list.
 
-The DreamVerse host needs `reactor-sdk==1.15.0` in a Python 3.10 or newer environment. Install it into the interpreter that you set as `pythonPath`:
+Only PixVerse R2 Director, LTX, Helios, LongLive 2.0, and both Visko Orbis models need the Python SDK. FastH3, FastH3-Omni, H3 Reference Turbo Realtime, and Pika H3 Flex call Reactor over HTTPS from the host and need only the API key. For the SDK models, the host needs `reactor-sdk==1.15.0` in a Python 3.10 or newer environment. Install it into the interpreter that you set as `pythonPath`:
 
 ```sh
 python3 -m pip install 'reactor-sdk==1.15.0'
@@ -48,20 +48,21 @@ Look up a configured alias through `dv_models_list` with provider `reactor`. Use
 
 | Field | Default | Meaning |
 |---|---|---|
-| `pythonPath` | `python3` | Host interpreter that can import the Reactor SDK. |
+| `pythonPath` | `python3` | Host interpreter that can import the Reactor SDK. Clip Generation models do not use it. |
 | `credentialRef` | `REACTOR_API_KEY` | Name that the harness credential store resolves for each render. |
-| `timeoutSeconds` | `360` | Maximum lifetime of one Reactor session, in seconds. It covers connection, upload, generation, real-time playback or streaming, capture, and download. Integer from 1 to 3600. |
-| `apiBaseUrl` | `https://api.reactor.inc` | HTTPS origin of the Reactor API, without a path, query, or credentials. It serves the model catalog, the PixVerse saved-step downloads, and the SDK session through its `api_url` argument. Loading fails for any other value. |
+| `timeoutSeconds` | `360` | Maximum duration of one render, in seconds. For a Clip Generation model it covers upload, generation, and download. For an SDK model it is the session lifetime and covers connection, upload, generation, streaming, capture, and download. Integer from 1 to 3600. |
+| `apiBaseUrl` | `https://api.reactor.inc` | HTTPS origin of the Reactor API, without a path, query, or credentials. It serves the model catalog, Clip Generation requests, the PixVerse saved-step downloads, and the SDK session through its `api_url` argument. Loading fails for any other value. |
+| `pollIntervalMs` | `5000` | Wait between Clip Generation status polls, in milliseconds. A longer `Retry-After` header from Reactor takes precedence, up to 60 seconds. Integer from 1 to 60000. |
 | `catalogTimeoutSeconds` | `30` | Deadline for one `GET /api/dv/reactor/catalog` request to Reactor and for one account check, in seconds. Integer from 1 to 300. |
 | `models` | Empty in the DreamVerse bundle | Model aliases for the generation tools. Each has a `profile` and optional `modelId` and `durationsSec` overrides. |
 
-The session lifetime must exceed the clip duration plus setup and generation time. Queued workflows play the clip back in real time before capture, and streamed workflows run in real time. Reactor bills for the session lifetime, so `timeoutSeconds` is also the cap on the cost of one render. The plugin registers only durations shorter than `timeoutSeconds`, so `dv_models_get` never lists a duration that cannot finish. For example, the default `360` removes the LTX durations of 360 seconds or more, and LTX supports at most 300 seconds. If an alias has no duration shorter than `timeoutSeconds`, loading the plugin or applying new settings fails with a message that names the alias and `timeoutSeconds`.
+`timeoutSeconds` must exceed the clip duration plus setup and generation time. A Clip Generation render that passes the deadline is cancelled at Reactor. Streamed SDK workflows run in real time, and Reactor bills an SDK session for its lifetime, so `timeoutSeconds` also caps the cost of one SDK render. The Clip Generation reference does not state how Reactor bills a generation, so check your Reactor account's billing for those models. The plugin registers only durations shorter than `timeoutSeconds`, so `dv_models_get` never lists a duration that cannot finish. For example, the default `360` removes the LTX durations of 360 seconds or more, and LTX supports at most 300 seconds. If an alias has no duration shorter than `timeoutSeconds`, loading the plugin or applying new settings fails with a message that names the alias and `timeoutSeconds`.
 
 Set `models` to a subset of profiles if your account has access to a smaller set. To register a private deployment that implements the same model commands, set its full `owner/name` as `modelId` and choose the corresponding `profile`.
 
 On a Web profile, `GET /api/dv/reactor/catalog` lists all models visible to the configured API key. Each row includes `shotModels`, the configured DreamVerse aliases for that model. Without a saved key the route answers 503, when Reactor refuses the key (HTTP 401 or 403) it answers 401, and for any other failure it answers 502. The JSON body is `{ "error": "..." }` in each case, the same fields and statuses as the [OpenRouter catalog route](../openrouter/README.md), so a client can tell "key rejected" from "could not connect".
 
-`GET /api/dv/reactor/account` checks the host's saved key with one read-only model catalog request, and `POST /api/dv/reactor/account` with the body `{ "key": "<candidate>" }` runs the same check on a candidate key without saving it. Both are the shared [account-status route](../models/README.md#share-the-account-status-route) and answer `status` `missing`, `rejected`, `unavailable`, `needs-setup` or `connected` with `Cache-Control: no-store`. A missing key is `missing`. Otherwise the check first runs the configured `pythonPath` with `-B -c "import reactor_sdk"` under the scrubbed environment and no key. When the interpreter is missing or cannot import the SDK, the answer is `needs-setup` with a `message` that names the interpreter and the install command `python3 -m pip install 'reactor-sdk==1.15.0'`. A connected response carries the account email as `label` and the credit balance as `balanceUsd`, read from the `/me` and `/accounts/{id}/credits` endpoints that the [Reactor dashboard](https://docs.reactor.inc/resources/billing#usage-tracking) uses. Reactor documents no balance API, so either figure is null when those endpoints fail or change; `limitRemainingUsd` is always null. Both checks stop after `catalogTimeoutSeconds`.
+`GET /api/dv/reactor/account` checks the host's saved key with one read-only model catalog request, and `POST /api/dv/reactor/account` with the body `{ "key": "<candidate>" }` runs the same check on a candidate key without saving it. Both are the shared [account-status route](../models/README.md#share-the-account-status-route) and answer `status` `missing`, `rejected`, `unavailable`, `needs-setup` or `connected` with `Cache-Control: no-store`. A missing key is `missing`. Otherwise, when at least one configured model uses the SDK bridge, the check first runs the configured `pythonPath` with `-B -c "import reactor_sdk"` under the scrubbed environment and no key; a configuration with only Clip Generation models skips this step. When the interpreter is missing or cannot import the SDK, the answer is `needs-setup` with a `message` that names the interpreter and the install command `python3 -m pip install 'reactor-sdk==1.15.0'`. A connected response carries the account email as `label` and the credit balance as `balanceUsd`, read from the `/me` and `/accounts/{id}/credits` endpoints that the [Reactor dashboard](https://docs.reactor.inc/resources/billing#usage-tracking) uses. Reactor documents no balance API, so either figure is null when those endpoints fail or change; `limitRemainingUsd` is always null. Both checks stop after `catalogTimeoutSeconds`.
 
 -----
 
@@ -71,7 +72,7 @@ On a Web profile, `GET /api/dv/reactor/catalog` lists all models visible to the 
 <details>
 <summary>Provider implementation</summary>
 
-[The Cordis plugin](src/index.ts) registers the [model profiles](src/profiles.ts), resolves the API key on the host, and maps DreamVerse tasks to model inputs. [The SDK bridge](src/render.py) uses Reactor’s official Python SDK to open one bounded session per render, upload inputs, send commands, and capture a clip. PixVerse provides the MP4 directly through Reactor’s saved-step API. The bridge closes the session after capture, cancellation, or failure. Helios reports its running frame count in `state.current_frame` after every completed chunk. The bridge uses that count to decide when to capture.
+[The Cordis plugin](src/index.ts) registers the [model profiles](src/profiles.ts), resolves the API key on the host, and maps DreamVerse tasks to model inputs. [The Clip Generation client](src/generations.ts) uploads each input with `POST /files`, submits `POST /generations` once, polls `GET /generations/{id}` until `succeeded` or `failed`, and downloads `output.mp4` from its signed URL. It sends the API key only to the configured origin, refuses redirects on those requests, and sends no credentials to signed URLs. If a render is cancelled or reaches `timeoutSeconds` after Reactor accepted the generation, it sends `DELETE /sessions/{id}` with the generation ID. A failed cancellation request does not replace the original error. The shot renderer then remuxes the MP4 with `ffmpeg`, probes its duration, and extracts the last frame, as it does for SDK clips. [The SDK bridge](src/render.py) uses Reactor’s official Python SDK for the models without a Clip Generation reference: it opens one bounded session per render, uploads inputs, sends commands, and captures a clip. PixVerse provides the MP4 directly through Reactor’s saved-step API. The bridge does not capture queued clips from a session recording, because a recording becomes ready only while the session keeps generating. The bridge closes the session after capture, cancellation, or failure. Helios reports its running frame count in `state.current_frame` after every completed chunk. The bridge uses that count to decide when to capture.
 
 The plugin runs a Python bridge because the Reactor Python SDK is the official client for headless sessions, uploads, commands, and recording download. The plugin sends the API key to the bridge only on stdin, and the bridge process runs with the environment returned by `scrubbedParentEnv`, so the key never reaches the child environment.
 
@@ -114,7 +115,10 @@ Catalog results append to the conversation. The provider adds no text to the fix
 - Streamed workflows require the deployment to enable Reactor recordings. PixVerse uses Reactor’s saved-step files.
 - Models that need interactive control, live microphone or camera input, or robotics sessions appear in catalog discovery. They need their own workflows to produce DreamVerse shots.
 - The host profile enables bundled shot profiles and can map an alias to a private deployment that implements the same workflow.
-- Cancellation asks the SDK to disconnect. The session has a server-side lifetime limit if the host loses the connection during cleanup.
+- Cancelling a Clip Generation render stops monitoring and asks Reactor to cancel the generation. A cancellation request that cannot reach Reactor leaves the generation to finish, and Reactor retains its result for 48 hours.
+- Cancelling an SDK render asks the SDK to disconnect. The session has a server-side lifetime limit if the host loses the connection during cleanup.
+- Prompt length limits of the Clip Generation models (1024 UTF-8 bytes for FastH3 and 2048 for the others) are enforced by Reactor, which reports the limit in its error message.
+- Clip Generation accepts input files of 64 MiB for FastH3 and Pika H3 Flex, but DreamVerse still limits them to 25 MiB.
 
 <a id="dev-note"></a>
 ### Dev Note
@@ -122,6 +126,6 @@ Catalog results append to the conversation. The provider adds no text to the fix
 <details>
 <summary>Maintainer context</summary>
 
-The bundle tests replace the external SDK and check MP4 and PNG import. The paid smoke test in `packages/bundle/dv/tests/reactor-live.e2e.ts` requires `DV_REACTOR_LIVE_TEST=1`, the host API key, and a Python environment with the SDK.
+The bundle tests replace the external SDK and the Clip Generation API ([fake API](tests/fake-reactor-api.ts)) and check MP4 and PNG import. The paid smoke test in `packages/bundle/dv/tests/reactor-live.e2e.ts` renders FastH3-Omni over the Clip Generation API and requires `DV_REACTOR_LIVE_TEST=1` and the host API key.
 
 </details>

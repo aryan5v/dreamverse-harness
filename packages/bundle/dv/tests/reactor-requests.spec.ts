@@ -1,9 +1,11 @@
 /** Check which shot requests each Reactor model accepts, how prompts cite assets, and the published input slots. */
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { formatModelKey, type RenderRequest } from '@dv/models'
 import { formatCitation, type AssetId } from '@dv/project'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FFMPEG } from '../../../dv/api/tests/support.ts'
+import { installFakeReactor } from '../../../dv/reactor/tests/fake-reactor-api.ts'
 import { boot, disposeBooted } from './reactor-support.ts'
 
 afterEach(async () => {
@@ -138,8 +140,10 @@ describe('Reactor prompt citations', () => {
       project.id, Buffer.from(mime + model), { mime, name: mime.replace('/', '-'), ...durationSec === undefined ? {} : { durationSec } }, null)
     const assets = { image: asset('image/png'), audio: asset('audio/wav', 4), video: asset('video/mp4', 4), other: asset('image/webp') }
     const entry = app.ctx.dvModels.resolve([task], { modality: 'video', provider: 'reactor', model, task })
+    const calls = installFakeReactor({ video: readFileSync(app.recording) })
     await Array.fromAsync(entry.render({ ...request, ...over(assets) }))
-    return app.readTrace().find(row => row['event'] === 'enqueue' || row['event'] === 'create_world')?.['prompt']
+    const submitted = calls.find(call => call.method === 'POST' && call.url.endsWith('/generations'))?.json as { input?: { prompt?: unknown } } | undefined
+    return submitted?.input?.prompt ?? app.readTrace().find(row => row['event'] === 'create_world')?.['prompt']
   }
   const cite = (label: string, kind: string, id: string): string => formatCitation(label, kind, id)
 
@@ -208,6 +212,7 @@ describe('Reactor delivery checks', () => {
   it('uses the container duration when the recording has no video duration and rejects an empty recording', async () => {
     const app = await setup()
     execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=s=64x64:r=24:d=2', '-c:v', 'libx264', app.recording])
+    installFakeReactor({ video: readFileSync(app.recording) })
     const entry = app.entry('fast-h3', 't2v')
     const probe = app.ctx.dvFfmpeg.probe.bind(app.ctx.dvFfmpeg)
     const mocked = vi.spyOn(app.ctx.dvFfmpeg, 'probe')
@@ -250,5 +255,18 @@ describe('Reactor API origin', () => {
     const trace = app.readTrace()
     expect(trace.find(row => row['event'] === 'init')).toMatchObject({ api_url: origin })
     expect(trace.some(row => row['event'] === 'get_saved_step')).toBe(true)
+  })
+})
+
+describe('Reactor Clip Generation origin', () => {
+  it.each(['https://api.reactor.inc', 'https://reactor.example.test'])('sends every authenticated request to %s', async (apiBaseUrl) => {
+    const app = await setup({ apiBaseUrl })
+    execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=s=64x64:r=24:d=8', '-c:v', 'libx264', app.recording])
+    const calls = installFakeReactor({ origin: apiBaseUrl, video: readFileSync(app.recording) })
+    await Array.fromAsync(app.entry('fast-h3', 't2v').render(request))
+    const authenticated = calls.filter(call => call.headers.has('authorization')).map(call => new URL(call.url).origin)
+    expect(authenticated.length).toBeGreaterThan(0)
+    expect(new Set(authenticated)).toEqual(new Set([apiBaseUrl]))
+    expect(() => execFileSync('test', ['-e', app.trace])).toThrow()
   })
 })

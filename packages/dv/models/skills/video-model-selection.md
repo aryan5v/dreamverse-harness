@@ -8,6 +8,8 @@ Providers may expose `dv_models_status`, `dv_models_load` and `dv_models_unload`
 
 Read `hosting` and `worker_selection` from `dv_models_list` or `dv_models_get` before consulting device availability. A `managed` model runs on the provider's servers: submit the render directly. A `self-hosted` model uses its configured server unless it reports `worker_selection: true`. Consult device availability only when the user asks about devices or the model reports `worker_selection: true`.
 
+When this conversation has a selected model (`video_model` is set, or the user named one), render with that model; do not list hardware or check other providers' servers for it. If a render with the selected model fails, report the error in plain words and stop. Do not retry, switch provider or model, or probe devices unless the user asks. A model with `hosting: managed` bills each attempt, so never retry it automatically.
+
 ## Independent workers
 
 When the model and render tools accept `worker`, use the IDs of enabled workers for explicit placement. For example, load Pika on a chosen worker, render its assigned clip there, then unload that worker only after its generation finishes. Omit `worker` only when automatic placement is intended. Never say you cannot control placement when `worker_selection` is available. Independent shots with all inputs available can run together: emit their render calls in the same tool batch. The provider reserves one worker per generation, prefers an already loaded model, and queues when eligible workers are busy.

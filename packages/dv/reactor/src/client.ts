@@ -12,7 +12,8 @@ export interface Upload {
   mime: string
 }
 
-interface ClipRequest {
+/** Model settings and local assets of one render, for the SDK bridge and the Clip Generation API. */
+export interface ClipRequest {
   apiBaseUrl: string
   model: string
   workflow: Workflow

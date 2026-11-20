@@ -1,9 +1,20 @@
 /** DreamVerse task mappings for the documented Reactor model command schemas. */
 import type { RenderModelFacts, TaskOfPrimitive } from '@dv/models'
 
-/** Queued clip, finite scripted take, or chunked video stream. */
+/**
+ * Reactor Clip Generation HTTP request: `first` and `last` name the model's input fields for the opening and closing
+ * frame file IDs, and `resolution` sends the `resolution` input.
+ */
+export interface GenerationFields {
+  first?: string
+  last?: string
+  resolution?: true
+}
+
+/** Clip Generation request over HTTP, queued world clip over an SDK session, finite scripted take, or chunked video stream. */
 export type Workflow =
-  | { kind: 'queue'; first?: string; last?: string; resolution?: true; world?: true }
+  | ({ kind: 'generation' } & GenerationFields)
+  | { kind: 'queue' }
   | { kind: 'take' }
   | {
     kind: 'chunks'
@@ -68,18 +79,18 @@ function fixed(aspect: string, resolution: string, size: [number, number]): Geom
 export const profiles = {
   'fast-h3-omni': {
     modelId: 'reactor/fast-h3-omni', name: 'FastH3-Omni', tasks: WITH_REFERENCES, geometry: H3_GEOMETRY,
-    durations: [5.875, 8, 10.125, 12.25, 14.375], workflow: { kind: 'queue', ...h3Frames },
+    durations: [5.875, 8, 10.125, 12.25, 14.375], workflow: { kind: 'generation', ...h3Frames },
     references: { ...h3References, imageRequired: true, keyframes: true },
   },
   'fast-h3': {
     // The schema publishes live duration bounds. Reactor's FastH3 example uses 8s.
     modelId: 'reactor/fast-h3', name: 'FastH3', tasks: FROM_FRAMES,
     geometry: { aspectRatios: H3_GEOMETRY.aspectRatios, resolutions: H3_GEOMETRY.resolutions },
-    durations: [8], workflow: { kind: 'queue', first: 'starting_frame', last: 'ending_frame' },
+    durations: [8], workflow: { kind: 'generation', first: 'starting_frame', last: 'ending_frame' },
   },
   'h3-reference-to-video-turbo-realtime': {
     modelId: 'reactor/h3-reference-to-video-turbo-realtime', name: 'H3 Reference Turbo Realtime', tasks: WITH_REFERENCES,
-    geometry: H3_GEOMETRY, durations: range(5, 15), workflow: { kind: 'queue' }, references: h3References, labels: 'plain',
+    geometry: H3_GEOMETRY, durations: range(5, 15), workflow: { kind: 'generation' }, references: h3References, labels: 'plain',
   },
   'pika-h3-flex': {
     modelId: 'reactor/pika-h3-flex', name: 'Pika H3 Flex', tasks: [...FROM_FRAMES, 'ref2v'],
@@ -89,12 +100,12 @@ export const profiles = {
     },
     durations: [5, 5.167, 5.875, 6, 6.583, 7, 7.292, 8, 8.708, 9, 9.417, 10, 10.125, 10.833, 11, 11.542, 12, 12.25,
       12.958, 13, 13.667, 14, 14.375, 15, 15.083],
-    workflow: { kind: 'queue', ...h3Frames, resolution: true }, labels: 'frame-pictures',
+    workflow: { kind: 'generation', ...h3Frames, resolution: true }, labels: 'frame-pictures',
     references: { ...h3References, video: 3, aggregateSeconds: true },
   },
   'pixverse-r2-director': {
     modelId: 'reactor/pixverse-r2-director', name: 'PixVerse R2 Director', tasks: WITH_REFERENCES,
-    geometry: twoAspect720, durations: range(5, 10), workflow: { kind: 'queue', world: true },
+    geometry: twoAspect720, durations: range(5, 10), workflow: { kind: 'queue' },
     references: { images: 6 }, seed: false, maxUploadMiB: 20,
   },
   ltx2: {

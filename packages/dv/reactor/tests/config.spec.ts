@@ -14,6 +14,12 @@ describe('Reactor configuration', () => {
     expect(Reactor.Config({})).toMatchObject({ pythonPath: 'python3', timeoutSeconds: 360, catalogTimeoutSeconds: 30 })
   })
 
+  it('defaults the Clip Generation poll interval to 5 seconds and bounds it', () => {
+    expect(Reactor.Config({}).pollIntervalMs).toBe(5000)
+    expect(Reactor.Config({ pollIntervalMs: 1 }).pollIntervalMs).toBe(1)
+    for (const value of [0, 60_001, 1.5]) expect(() => Reactor.Config({ pollIntervalMs: value })).toThrow()
+  })
+
   it('defaults the API origin to the Reactor service', () => {
     expect(Reactor.Config({}).apiBaseUrl).toBe('https://api.reactor.inc')
   })
