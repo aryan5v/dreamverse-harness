@@ -92,7 +92,7 @@ DreamVerse bundle [`@dv/bundle`](../../bundle/dv/README.zh.md) 以行 `dv-models
 | `aspectRatios` | 模型渲染的宽高比。默认值在前。 |
 | `resolutions` | 模型渲染的分辨率。默认值在前。 |
 | `frameSizes` | 以像素为单位的 `[width, height]`，按宽高比再按分辨率给出。 |
-| `minDurationSec`、`maxDurationSec` | 最短和最长的镜头，以整秒为单位。 |
+| `minDurationSec`、`maxDurationSec` | 最短和最长的镜头，以秒为单位。 |
 | `numFramesByDurationSec` | 从最小值到最大值的每个整秒时长的帧数。 |
 
 | `RenderStreamEvent` 类型 | 含义 |
@@ -100,7 +100,7 @@ DreamVerse bundle [`@dv/bundle`](../../bundle/dv/README.zh.md) 以行 `dv-models
 | `last_frame` | `png`：视频最后一帧的 PNG 字节。该事件位于 `video_start` 之前或最后一个 `chunk` 之后。 |
 | `video_start` | `mime`：视频的媒体类型。 |
 | `chunk` | `bytes`：视频字节的下一部分。 |
-| `done` | `timings`：后端的耗时。以 `_ms` 结尾的键是毫秒。其他键是秒。 |
+| `done` | `timings`：后端的耗时。以 `_ms` 结尾的键是毫秒。其他键是秒。如果供应商测量了产出，`durationSec` 表示实际视频时长。 |
 
 `renderTimings(headers)` 从 FastVideo 或 UniServe 应答的头部读取 `done` 的耗时：`inference_s` 来自 `x-inference-time-s`，`x-stage-durations` 的 JSON 对象中每个阶段对应一个 `<stage>_s`。缺少的头部、不是 JSON 的 `x-stage-durations` 和不是有限数的值不添加耗时，所以提供方仍然产出已完成的视频。
 
