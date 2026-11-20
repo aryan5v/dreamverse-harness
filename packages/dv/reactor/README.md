@@ -62,6 +62,8 @@ Set `models` to a subset of profiles if your account has access to a smaller set
 
 On a Web profile, `GET /api/dv/reactor/catalog` lists all models visible to the configured API key. Each row includes `shotModels`, the configured DreamVerse aliases for that model.
 
+`GET /api/dv/reactor/account` checks the host's configured key with one read-only model catalog request. It returns `missing`, `rejected`, `unavailable`, or `connected` in `status`. A connected response reports `balanceUsd: null` and `label: null`. Read the balance in the [Reactor dashboard](https://docs.reactor.inc/resources/billing#usage-tracking).
+
 -----
 
 <a id="understand-the-implementation"></a>

@@ -18,7 +18,7 @@ import type {} from '@dv/ffmpeg'
 import { assertModelAlias, syncModelEntriesAsync, type ModelEntry, type ModelGroup, type ModelSyncResult, type RenderRequest, type TaskOfPrimitive } from '@dv/models'
 import type { GeneratedImage, ImageRequest } from '@dv/image-generate'
 import type { AudioRequest, GeneratedAudio } from '@dv/audio-generate'
-import { OpenRouterApi } from './client.ts'
+import { OpenRouterApi, OpenRouterHttpError } from './client.ts'
 import type { ImageModel, ReferenceMedia, SpeechModel, VideoModel } from './types.ts'
 
 export interface Config {
@@ -387,6 +387,26 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       } catch { return Response.json({ error: 'Could not load OpenRouter models. Check the saved API key and connection.' }, { status: 502 }) }
     },
   }), 'OpenRouter model discovery'))
+  ctx.inject(['connection'], scope => scope.effect(() => scope.connection.fetch.register({
+    path: '/api/dv/openrouter/account', methods: ['GET'], requestBody: 'buffered',
+    fetch: async (request) => {
+      const headers = { 'Cache-Control': 'no-store' }
+      try {
+        const ref = config.credentialRef.get()
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(ref)) return Response.json({ status: 'unavailable' }, { headers })
+        const credential = await ctx.credentials.resolve(credentialRef(ref))
+        if (credential === undefined) return Response.json({ status: 'missing' }, { headers })
+        const account = new OpenRouterApi(config.baseUrl, () => Promise.resolve(credential.value), config.pollIntervalMs)
+        const { balanceUsd, label } = await account.account(request.signal)
+        return Response.json({
+          status: 'connected', balanceUsd, label: label?.includes(credential.value) === true ? null : label,
+        }, { headers })
+      } catch (error) {
+        const rejected = error instanceof OpenRouterHttpError && (error.status === 401 || error.status === 403)
+        return Response.json({ status: rejected ? 'rejected' : 'unavailable' }, { headers })
+      }
+    },
+  }), 'OpenRouter account status'))
   // A configured alias is checked without the network, so a bad alias in cordis.yml fails the load.
   for (const models of [config.models, config.imageModels, config.audioModels]) {
     for (const alias of Object.keys(models.get())) assertModelAlias(alias, ALIAS_MESSAGE)

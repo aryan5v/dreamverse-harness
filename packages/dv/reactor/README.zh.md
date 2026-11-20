@@ -62,6 +62,8 @@ python3 -m pip install 'reactor-sdk==1.15.0'
 
 在 Web profile 中，`GET /api/dv/reactor/catalog` 列出配置的 API 密钥可见的所有模型。每项的 `shotModels` 列出该模型在 DreamVerse 中已配置的别名。
 
+`GET /api/dv/reactor/account` 通过一次只读的模型目录请求检查主机配置的密钥。`status` 为 `missing`、`rejected`、`unavailable` 或 `connected`。连接成功时，返回 `balanceUsd: null` 和 `label: null`。余额可在 [Reactor 控制台](https://docs.reactor.inc/resources/billing#usage-tracking)查看。
+
 -----
 
 <a id="understand-the-implementation"></a>

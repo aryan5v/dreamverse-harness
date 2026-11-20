@@ -1,6 +1,6 @@
 /** Check pagination and validation of Reactor's official model listing. */
 import { afterEach, expect, it, vi } from 'vitest'
-import { listModels } from '../src/catalog.ts'
+import { checkAccess, listModels } from '../src/catalog.ts'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -50,4 +50,18 @@ it('requests the catalog from the configured API origin', async () => {
   vi.stubGlobal('fetch', fetch)
   await listModels('rk_fixture', new AbortController().signal, 'https://reactor.example.test')
   expect((fetch.mock.calls[0]?.[0] as URL).href).toBe('https://reactor.example.test/models?limit=200&offset=0')
+})
+
+it('checks access with one authenticated catalog page and preserves rejection', async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>()
+    .mockResolvedValueOnce(Response.json([]))
+    .mockResolvedValueOnce(new Response(null, { status: 403 }))
+  vi.stubGlobal('fetch', fetch)
+  const signal = new AbortController().signal
+  await expect(checkAccess('rk_fixture', signal, 'https://api.reactor.inc')).resolves.toBeUndefined()
+  expect(fetch.mock.calls[0]?.[0]).toEqual(new URL('https://api.reactor.inc/models?limit=1&offset=0'))
+  expect(fetch.mock.calls[0]?.[1]).toEqual({
+    headers: { Authorization: 'Bearer rk_fixture' }, signal, redirect: 'error',
+  })
+  await expect(checkAccess('rk_fixture', signal, 'https://api.reactor.inc')).rejects.toMatchObject({ status: 403 })
 })
