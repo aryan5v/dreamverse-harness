@@ -63,6 +63,7 @@ A provider plugin implements one `ModelEntry` for each key. `ModelEntry<T>` take
 | Member | Contract |
 | --- | --- |
 | `description` | The strengths and weaknesses of the model. The agent and the user compare descriptions to choose between similar models. |
+| `hosting` | Optional. `managed` when a hosted service operates the server that runs the model, `self-hosted` when the user does. The catalog keeps the value on the entry and does not return it in `dv_models_list` or `dv_models_get`. |
 | `facts()` | Resolves with the `RenderModelFacts` that the backend reports. Rejects when the backend cannot be reached. |
 | `schema()` | Resolves with a JSON description of the requests that the model accepts: the limits that the agent needs, such as durations, aspect ratios and resolutions, the inputs with their media types and counts, and the parameters in `extra`. The provider plugin defines this JSON. The catalog gives it to the agent unchanged. Rejects when the backend cannot be reached. |
 | `validateGenerationRequest(request)` | Resolves with each reason that the model cannot render a `RenderRequest`, one agent-facing sentence for each reason. The reasons include invalid `extra` values. Resolves with an empty list when the model can render the request. Rejects when the backend cannot be reached. |

@@ -63,6 +63,7 @@ DreamVerse bundle [`@dv/bundle`](../../bundle/dv/README.zh.md) 以行 `dv-models
 | 成员 | 约定 |
 | --- | --- |
 | `description` | 模型的长处和短处。agent 和用户比较描述，在相似的模型之间选择。 |
+| `hosting` | 可选。运行模型的服务器由托管服务运营时为 `managed`，由用户自己运营时为 `self-hosted`。模型目录在条目上保留该值，不在 `dv_models_list` 或 `dv_models_get` 中返回。 |
 | `facts()` | resolve 为后端报告的 `RenderModelFacts`。后端无法连接时 reject。 |
 | `schema()` | resolve 为描述模型所接受请求的 JSON：agent 需要的限制（例如时长、宽高比和分辨率）、各输入及其媒体类型和数量，以及 `extra` 中的参数。提供方插件定义该 JSON。模型目录把它原样交给 agent。后端无法连接时 reject。 |
 | `validateGenerationRequest(request)` | resolve 为模型无法渲染某个 `RenderRequest` 的每个原因，每个原因一句面向 agent 的话。原因包括无效的 `extra` 值。模型能渲染该请求时 resolve 为空列表。后端无法连接时 reject。 |
