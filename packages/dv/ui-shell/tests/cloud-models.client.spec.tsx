@@ -43,19 +43,20 @@ it('shows saved keys with balances and pages one source-aware table of picker ch
       <Connections providers={providers} connections={connections} />
       <ModelTable providers={providers} connections={connections} />
     </>)
-    const openrouterRow = screen.getByRole('button', { name: 'Manage OpenRouter' })
+    const openrouterRow = await screen.findByRole('button', { name: 'Manage OpenRouter' })
     await waitFor(() => { expect(within(openrouterRow).getByText('Key saved')).toBeTruthy() })
     expect(within(openrouterRow).getByText('$12.50')).toBeTruthy()
-    expect(within(screen.getByRole('button', { name: 'Manage Reactor' })).getByText('Not connected')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Manage Reactor' })).toBeNull()
     expect(reactor.load).not.toHaveBeenCalled()
 
-    const table = screen.getByRole('table', { name: 'Generation models' })
+    const table = screen.getByRole('table', { name: 'Model catalog' })
     await waitFor(() => { expect(within(table).getByText('Veo 00')).toBeTruthy() })
     expect(screen.getByText('1–12 of 14')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
     expect(screen.getByText('13–14 of 14')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Manage Reactor' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add a connection' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Add a connection' })).getByRole('button', { name: /Reactor/ }))
     const sheet = screen.getByRole('dialog', { name: 'Connect Reactor' })
     fireEvent.change(within(sheet).getByPlaceholderText('Paste your API key'), { target: { value: 'rk_fixture' } })
     fireEvent.click(within(sheet).getByRole('button', { name: 'Save key' }))
@@ -63,7 +64,10 @@ it('shows saved keys with balances and pages one source-aware table of picker ch
     expect(reactor.load).toHaveBeenCalledWith('rk_fixture', expect.any(AbortSignal))
     fireEvent.click(within(sheet).getByRole('button', { name: 'Done' }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reactor' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Provider' }))
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search providers' }), { target: { value: 'react' } })
+    expect(screen.queryByRole('menuitem', { name: 'OpenRouter' })).toBeNull()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reactor' }))
     const fast = within(table).getByRole('switch', { name: 'Use FastH3 in the picker' })
     expect(fast.getAttribute('aria-checked')).toBe('false')
     fireEvent.click(fast)

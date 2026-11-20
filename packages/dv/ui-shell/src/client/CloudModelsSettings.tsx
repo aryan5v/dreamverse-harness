@@ -3,12 +3,13 @@ import { useEffect, useId, useMemo, useState, useSyncExternalStore } from 'react
 import { createPortal } from 'react-dom'
 import {
   Button, IconChevronLeftOutlineRegular, IconChevronRightOutlineRegular, IconCloseOutlineRegular,
-  IconLinkOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Input, Switch,
+  IconLinkOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Input, Menu, MenuItemButton, Switch,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-models/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type { ModelCatalog } from '@deepseek-ai/dsh-api-remotes/client'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { CloudMedia, CloudModel, CloudModelSettings, CloudSelection } from '@dv/ui-kit/cloud-model-settings.ts'
 import { useText } from '@dv/ui-kit/locale.ts'
@@ -97,13 +98,14 @@ export function applyCloudModelsSettings(ctx: Context): void {
     scope.effect(() => scope.slots.inject('settings.models.header', () => scope.slots.register({
       name: 'settings.models.header', id: 'dv-default-models', order: 0, inject: () => ({ source: defaults, providers }),
     }, DefaultModels)), 'ui-shell: default models')
+    scope.effect(() => scope.slots.inject('settings.models.footer', () => scope.slots.register({
+      name: 'settings.models.footer', id: 'dv-cloud-models',
+      inject: () => ({ providers, connections, loadLlmCatalog: defaults.llmCatalog }),
+    }, ModelTable)), 'ui-shell: model table')
   })
   ctx.effect(() => ctx.slots.inject('settings.models.header', () => ctx.slots.register({
     name: 'settings.models.header', id: 'dv-connections', order: 10, inject: () => ({ providers, connections }),
   }, Connections)), 'ui-shell: generation provider connections')
-  ctx.effect(() => ctx.slots.inject('settings.models.footer', () => ctx.slots.register({
-    name: 'settings.models.footer', id: 'dv-cloud-models', inject: () => ({ providers, connections }),
-  }, ModelTable)), 'ui-shell: generation model table')
 }
 
 /** The status line of one connection row. */
@@ -137,11 +139,16 @@ export function Connections({ providers: registry, connections }: InjectedProps)
   const [open, setOpen] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const headingId = useId()
+  const addTitleId = useId()
   useEffect(() => { connections.ensure(providers.map(({ provider }) => provider)) }, [connections, providers])
+  useEffect(() => {
+    if (!adding) return
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setAdding(false) }
+    document.addEventListener('keydown', close)
+    return () => { document.removeEventListener('keydown', close) }
+  }, [adding])
   if (providers.length === 0) return null
   const connected = providers.filter(({ provider }) => accounts.get(provider.id)?.status === 'connected')
-  const listed = providers.filter(({ provider }) => accounts.get(provider.id)?.status !== 'missing')
-  const unlisted = providers.filter(({ provider }) => accounts.get(provider.id)?.status === 'missing')
   const active = providers.find(({ provider }) => provider.id === open)
   return <section className={css.group} aria-labelledby={headingId}>
     <header className={css.groupHeading}>
@@ -157,22 +164,14 @@ export function Connections({ providers: registry, connections }: InjectedProps)
             onClick={() => { for (const { provider } of providers) void connections.refresh(provider) }}>
             <IconRefreshOutlineRegular size={14} />
           </button>
-          <button type="button" className={css.iconButton} aria-label={text('添加连接', 'Add a connection')}
+          <button type="button" className={css.iconButton} aria-label={text('添加连接', 'Add a connection')} aria-haspopup="dialog"
             title={text('添加连接', 'Add a connection')} aria-expanded={adding} onClick={() => { setAdding(value => !value) }}>
             <IconPlusOutlineRegular size={14} />
           </button>
         </span>
       </div>
-      {adding ? <div className={css.addGrid} role="group" aria-label={text('添加连接', 'Add a connection')}>
-        {providers.map(({ provider }) => <button key={provider.id} type="button" className={css.addTile}
-          onClick={() => { setAdding(false); setOpen(provider.id) }}>
-          <ProviderMark provider={provider} />
-          <span className={css.tileText}><strong>{provider.name}</strong><span>{provider.domain}</span></span>
-          {accounts.get(provider.id)?.status === 'connected' ? <span className={css.tileNote}>{text('已连接', 'Connected')}</span> : null}
-        </button>)}
-      </div> : null}
       <ul className={css.rows}>
-        {[...listed, ...unlisted].map(({ provider, state }) => {
+        {connected.map(({ provider, state }) => {
           const account = accounts.get(provider.id)
           return <li key={provider.id}>
             <button type="button" className={css.row} aria-haspopup="dialog"
@@ -200,6 +199,24 @@ export function Connections({ providers: registry, connections }: InjectedProps)
         })}
       </ul>
     </div>
+    {adding ? createPortal(<div className={css.sheetRoot}>
+      <div className={css.sheetMask} aria-hidden="true" onClick={() => { setAdding(false) }} />
+      <div className={css.sheet} role="dialog" aria-modal="true" aria-labelledby={addTitleId}>
+        <header className={css.sheetHead}>
+          <h2 id={addTitleId}>{text('添加连接', 'Add a connection')}</h2>
+          <button type="button" className={css.iconButton} aria-label={text('关闭', 'Close')} autoFocus
+            onClick={() => { setAdding(false) }}><IconCloseOutlineRegular size={16} /></button>
+        </header>
+        <div className={css.sheetBody}><div className={css.addGrid}>
+          {providers.map(({ provider }) => <button key={provider.id} type="button" className={css.addTile}
+            onClick={() => { setAdding(false); setOpen(provider.id) }}>
+            <ProviderMark provider={provider} />
+            <span className={css.tileText}><strong>{provider.name}</strong><span>{provider.domain}</span></span>
+            {accounts.get(provider.id)?.status === 'connected' ? <span className={css.tileNote}>{text('已连接', 'Connected')}</span> : null}
+          </button>)}
+        </div></div>
+      </div>
+    </div>, document.body) : null}
     {active === undefined ? null : <ConnectionSheet provider={active.provider} state={active.state} connections={connections}
       account={accounts.get(active.provider.id)} onClose={() => { setOpen(null) }} />}
   </section>
@@ -322,23 +339,31 @@ function ConnectionSheet({ provider, state, account, connections, onClose }: {
  * @param props - the provider registry and the shared catalogs.
  * @returns the generation model table.
  */
-export function ModelTable({ providers: registry, connections }: InjectedProps) {
+export function ModelTable({ providers: registry, connections, loadLlmCatalog }: InjectedProps & {
+  loadLlmCatalog?: () => Promise<ModelCatalog>
+}) {
   const text = useText()
   const mediaName = useMediaName()
   const providers = useProviders(registry)
   const { catalogs } = useSyncExternalStore(connections.subscribe, connections.getSnapshot)
   const [query, setQuery] = useState('')
   const [source, setSource] = useState('')
-  const [media, setMedia] = useState<CloudMedia | ''>('')
+  const [media, setMedia] = useState<CloudMedia | 'llm' | ''>('')
+  const [llm, setLlm] = useState<ModelCatalog | null>(null)
+  const [sourceOpen, setSourceOpen] = useState(false)
+  const [sourceQuery, setSourceQuery] = useState('')
   const [enabledOnly, setEnabledOnly] = useState(false)
   const [page, setPage] = useState(0)
   const [pending, setPending] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
-  const headingId = useId()
   useEffect(() => { setPage(0) }, [query, source, media, enabledOnly])
-  if (providers.length === 0) return null
+  useEffect(() => {
+    let active = true
+    void loadLlmCatalog?.().then((catalog) => { if (active) setLlm(catalog) }, () => { if (active) setLlm(null) })
+    return () => { active = false }
+  }, [loadLlmCatalog, catalogs])
 
-  const rows = providers.flatMap(({ provider, state }) => {
+  const generation = providers.flatMap(({ provider, state }) => {
     const catalog = catalogs.get(provider.id)
     const loaded = catalog?.status === 'ready' ? catalog.models : undefined
     const models = new Map(state.enabled.map(model => [modelKey(model), {
@@ -346,8 +371,13 @@ export function ModelTable({ providers: registry, connections }: InjectedProps) 
     }]))
     const enabled = new Set(models.keys())
     for (const model of loaded ?? []) models.set(modelKey(model), { model, enabled: enabled.has(modelKey(model)) })
-    return Array.from(models.values(), row => ({ ...row, provider, writable: state.writable }))
+    return Array.from(models.values(), row => ({ ...row, provider, writable: state.writable, kind: 'generation' as const }))
   })
+  const groups = llm?.groups.filter(group => llm.routableProviders.includes(group.id)) ?? []
+  const rows = [...generation, ...groups.flatMap(group => group.models.map(model => ({
+    kind: 'llm' as const, model: { ...model, media: 'llm' as const, unavailable: undefined },
+    provider: { id: group.id, name: group.name }, enabled: true,
+  })))]
   const needle = query.trim().toLowerCase()
   const visible = rows.filter(row => (source === '' || row.provider.id === source) && (media === '' || row.model.media === media)
     && (!enabledOnly || row.enabled) && `${row.model.name} ${row.model.id}`.toLowerCase().includes(needle))
@@ -362,12 +392,11 @@ export function ModelTable({ providers: registry, connections }: InjectedProps) 
     workflow: text('需要其他工作流', 'Needs another workflow'),
   }
   const mediaOptions = [...new Set(providers.flatMap(({ provider }) => provider.media))]
+  const sourceOptions = new Map([...providers.map(({ provider }) => [provider.id, provider.name] as const),
+    ...groups.map(group => [group.id, group.name] as const)])
+  const sourceItems = [...sourceOptions].filter(([, name]) => name.toLowerCase().includes(sourceQuery.trim().toLowerCase()))
 
-  return <section className={css.group} aria-labelledby={headingId}>
-    <header className={css.groupHeading}>
-      <h3 id={headingId}>{text('生成模型', 'Generation models')}</h3>
-      <p>{text('开启的模型会出现在聊天的生成模型选择器中。', 'Models you turn on appear in the chat’s generation model picker.')}</p>
-    </header>
+  return <section className={css.group} aria-label={text('模型目录', 'Model catalog')}>
     <div className={css.card}>
       <div className={css.toolbar}>
         <label className={css.search}>
@@ -376,16 +405,26 @@ export function ModelTable({ providers: registry, connections }: InjectedProps) 
           <input type="search" placeholder={text('搜索模型', 'Search models')} value={query}
             onChange={(event) => { setQuery(event.target.value) }} />
         </label>
-        <div className={css.chips} role="group" aria-label={text('来源', 'Source')}>
-          <button type="button" className={css.chip} aria-pressed={source === ''} onClick={() => { setSource('') }}>
-            {text('全部', 'All')}
-          </button>
-          {providers.map(({ provider }) => <button key={provider.id} type="button" className={css.chip}
-            aria-pressed={source === provider.id} onClick={() => { setSource(source === provider.id ? '' : provider.id) }}>
-            <provider.logo size={12} />{provider.name}
-          </button>)}
-        </div>
+        <Menu open={sourceOpen} onClose={() => { setSourceOpen(false) }} portal
+          anchor={<button type="button" className={css.chip} aria-haspopup="menu" aria-expanded={sourceOpen}
+            onClick={() => { setSourceQuery(''); setSourceOpen(!sourceOpen) }}>
+            {sourceOptions.get(source) ?? text('提供商', 'Provider')}
+          </button>}>
+          <label className={`${css.search} ${css.sourceSearch}`}>
+            <IconSearchOutlineRegular size={14} />
+            <input autoFocus type="search" aria-label={text('搜索提供商', 'Search providers')}
+              placeholder={text('搜索提供商', 'Search providers')} value={sourceQuery}
+              onChange={(event) => { setSourceQuery(event.target.value) }} />
+          </label>
+          <MenuItemButton onSelect={() => { setSource(''); setSourceOpen(false) }}>
+            {text('所有提供商', 'All providers')}
+          </MenuItemButton>
+          {sourceItems.map(([id, name]) => <MenuItemButton key={id}
+            onSelect={() => { setSource(id); setSourceOpen(false) }}>{name}</MenuItemButton>)}
+        </Menu>
         <div className={css.chips} role="group" aria-label={text('类型', 'Type')}>
+          <button type="button" className={css.chip} aria-pressed={media === 'llm'}
+            onClick={() => { setMedia(media === 'llm' ? '' : 'llm') }}>{text('语言模型', 'LLM')}</button>
           {mediaOptions.map(option => <button key={option} type="button" className={css.chip} aria-pressed={media === option}
             onClick={() => { setMedia(media === option ? '' : option) }}>{mediaName(option)}</button>)}
         </div>
@@ -395,7 +434,7 @@ export function ModelTable({ providers: registry, connections }: InjectedProps) 
         </span>
       </div>
       {failure === null ? null : <p className={css.tableAlert} role="alert">{failure}</p>}
-      <table className={css.table} aria-label={text('生成模型', 'Generation models')}>
+      <table className={css.table} aria-label={text('模型目录', 'Model catalog')}>
         <thead><tr>
           <th scope="col">{text('模型', 'Model')}</th>
           <th scope="col">{text('类型', 'Type')}</th>
@@ -403,30 +442,35 @@ export function ModelTable({ providers: registry, connections }: InjectedProps) 
           <th scope="col" className={css.switchCell}>{text('在选择器中', 'In picker')}</th>
         </tr></thead>
         <tbody>
-          {shown.map(({ model, provider, enabled, writable }) => {
-            const id = `${provider.id}/${modelKey(model)}`
+          {shown.map((row) => {
+            const { model, provider, enabled } = row
+            const id = `${provider.id}/${model.media}/${model.id}`
             return <tr key={id} data-enabled={enabled}>
               <th scope="row">
                 <span className={css.modelCell}>
-                  <ProviderMark provider={provider} size={26} />
+                  {row.kind === 'generation' ? <ProviderMark provider={row.provider} size={26} />
+                    : <span className={css.initial} aria-hidden="true">{provider.name.slice(0, 1)}</span>}
                   <span className={css.modelText}>
                     <span className={css.modelName}>{model.name}</span>
                     <span className={css.modelId}>{model.unavailable === undefined ? model.id : unavailable[model.unavailable]}</span>
                   </span>
                 </span>
               </th>
-              <td><span className={css.pill} data-media={model.media}>{mediaName(model.media)}</span></td>
+              <td><span className={css.pill} data-media={model.media}>
+                {model.media === 'llm' ? text('语言模型', 'LLM') : mediaName(model.media)}
+              </span></td>
               <td className={css.sourceCell}>{provider.name}</td>
               <td className={css.switchCell}>
-                <Switch checked={enabled} label={text(`在选择器中使用 ${model.name}`, `Use ${model.name} in the picker`)}
-                  disabled={!writable || pending !== null || (!enabled && model.unavailable !== undefined)}
+                {row.kind === 'llm' ? text('可用', 'Available') : <Switch checked={enabled}
+                  label={text(`在选择器中使用 ${model.name}`, `Use ${model.name} in the picker`)}
+                  disabled={!row.writable || pending !== null || (!enabled && row.model.unavailable !== undefined)}
                   onChange={(next) => {
                     setPending(id)
                     setFailure(null)
-                    provider.setEnabled(model, next).catch((_refused: unknown) => {
+                    row.provider.setEnabled(row.model, next).catch((_refused: unknown) => {
                       setFailure(text('无法保存模型选择。请重试。', 'Could not save the model selection. Try again.'))
                     }).finally(() => { setPending(null) })
-                  }} />
+                  }} />}
               </td>
             </tr>
           })}
