@@ -42,7 +42,7 @@ export class OpenRouterHttpError extends Error {
 export class OpenRouterApi {
   private readonly base: URL
   constructor(baseUrl: string, private readonly resolveKey: () => Promise<string>, private readonly pollMs: number,
-    private readonly fetcher: typeof globalThis.fetch = globalThis.fetch) {
+    private readonly fetcher: typeof globalThis.fetch = globalThis.fetch, private readonly catalogTimeoutMs = 10_000) {
     this.base = new URL(baseUrl.replace(/\/?$/, '/'))
     if (!['http:', 'https:'].includes(this.base.protocol) || this.base.username !== '' || this.base.password !== ''
       || this.base.search !== '' || this.base.hash !== '') throw new Error('Invalid OpenRouter API base URL.')
@@ -62,9 +62,9 @@ export class OpenRouterApi {
     return response
   }
 
-  /** The JSON of a catalog route. Metadata lookups are bounded to 10 seconds; generation follows the operation lifetime. */
+  /** The JSON of a catalog route. Metadata lookups are bounded by `catalogTimeoutMs`; generation follows the operation lifetime. */
   private async catalogJson(path: string, signal?: AbortSignal): Promise<unknown> {
-    const deadline = AbortSignal.timeout(10_000)
+    const deadline = AbortSignal.timeout(this.catalogTimeoutMs)
     return (await this.call(path, { signal: signal === undefined ? deadline : AbortSignal.any([signal, deadline]) })).json()
   }
 
@@ -88,19 +88,23 @@ export class OpenRouterApi {
   }
 
   /**
-   * Look up the configured key and read account credits when the key can access them.
+   * Look up the key with `GET key` and read account credits with `GET credits` when the key is a management key.
    * @param signal - aborts both requests.
-   * @returns The key label and available account credit in US dollars. A balance outside the key's permissions is null.
-   * @throws OpenRouterHttpError when key lookup fails.
+   * @returns The key label, the account credit in US dollars, and the key's own remaining spending limit in US dollars.
+   * The balance is null for a key that cannot read credits or whose credits request failed; the limit is null when the key
+   * has none. The two figures are never combined.
+   * @throws OpenRouterHttpError when the key lookup fails; Error when the key metadata is invalid.
    */
-  async account(signal: AbortSignal): Promise<{ balanceUsd: number | null; label: string | null }> {
+  async account(signal: AbortSignal): Promise<{ balanceUsd: number | null; label: string | null; limitRemainingUsd: number | null }> {
     const key: unknown = await this.catalogJson('key', signal)
     if (typeof key !== 'object' || key === null || !('data' in key) || typeof key.data !== 'object' || key.data === null
       || !('is_management_key' in key.data) || typeof key.data.is_management_key !== 'boolean') {
       throw new Error('OpenRouter returned invalid key metadata.')
     }
     const label = 'label' in key.data && typeof key.data.label === 'string' ? key.data.label : null
-    if (!key.data.is_management_key) return { balanceUsd: null, label }
+    const limit = 'limit_remaining' in key.data ? key.data.limit_remaining : null
+    if (limit !== null && (typeof limit !== 'number' || !Number.isFinite(limit))) throw new Error('OpenRouter returned invalid key metadata.')
+    if (!key.data.is_management_key) return { balanceUsd: null, label, limitRemainingUsd: limit }
     const credits = await this.catalogJson('credits', signal).catch((error: unknown) => {
       if (signal.aborted) throw error
       return null
@@ -108,7 +112,7 @@ export class OpenRouterApi {
     const total = credits?.data?.total_credits
     const used = credits?.data?.total_usage
     const balance = typeof total === 'number' && typeof used === 'number' ? total - used : NaN
-    return { balanceUsd: Number.isFinite(balance) ? balance : null, label }
+    return { balanceUsd: Number.isFinite(balance) ? balance : null, label, limitRemainingUsd: limit }
   }
 
   /** Read current image choices. */
