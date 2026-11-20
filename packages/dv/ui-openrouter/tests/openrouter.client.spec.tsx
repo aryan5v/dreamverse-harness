@@ -34,8 +34,10 @@ it('loads all three media catalogs through one provider and stores only the key 
   const storeKey = vi.fn(async () => {})
   const discover = vi.fn(async () => both)
   const enableOperator = vi.fn(async () => {})
+  const disableOperator = vi.fn(async () => {})
   const provider = openRouterSettings({
-    form, storeKey, discover, enableOperator, operatorEnabled: () => false, account: async () => ({ status: 'missing' }),
+    form, storeKey, discover, enableOperator, disableOperator, operatorEnabled: () => false,
+    account: async () => ({ status: 'missing' }),
   })
   const signal = new AbortController().signal
   const catalog = await provider.load('fixture-key', signal)
@@ -52,6 +54,8 @@ it('loads all three media catalogs through one provider and stores only the key 
   expect(JSON.stringify(form.mutate.mock.calls)).not.toContain('fixture-key')
   await provider.enableOperator?.('')
   expect(enableOperator).toHaveBeenCalledWith('OPENROUTER_API_KEY')
+  await provider.disableOperator?.()
+  expect(disableOperator).toHaveBeenCalledOnce()
   expect(storeKey).toHaveBeenCalledTimes(1)
 })
 
@@ -61,7 +65,7 @@ it('keeps saved selections available for removal even when they are missing from
   const warning = 'Configured model is unavailable.'
   const provider = openRouterSettings({
     form, storeKey: async () => {}, discover: async () => ({ ...both, error: warning }), enableOperator: async () => {},
-    operatorEnabled: () => false, account: async () => ({ status: 'missing' }),
+    disableOperator: async () => {}, operatorEnabled: () => false, account: async () => ({ status: 'missing' }),
   })
   expect(await provider.load('', new AbortController().signal)).toMatchObject({ warning })
   const retired = provider.settings.getSnapshot().enabled.find(row => row.id === 'example/retired-video')!

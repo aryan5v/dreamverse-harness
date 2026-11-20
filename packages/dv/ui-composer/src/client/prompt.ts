@@ -11,7 +11,7 @@
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { createElement, useEffect, useSyncExternalStore } from 'react'
-import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
@@ -211,47 +211,61 @@ export function applyPrompt(ctx: ClientContext): void {
     window.addEventListener(DV_CURRENT_PROJECT_EVENT, follow)
     return () => { window.removeEventListener(DV_CURRENT_PROJECT_EVENT, follow) }
   }, 'dv-composer: open project')
-  const defaultsForm = (): ConfigForm<{ defaults?: Record<string, { provider: string; model: string }> }> | undefined =>
+  type GenerationDefaults = Record<string, { provider: string; model: string }>
+  const defaultsForm = (): ConfigForm<{ defaults?: GenerationDefaults }> | undefined =>
     ctx.get('configForms')?.get('dv-models')
+  const defaultsSnapshot = (): ConfigFormSnapshot<{ defaults?: GenerationDefaults }> | undefined =>
+    defaultsForm()?.getSnapshot()
+  const subscribeDefaults = (listener: () => void): (() => void) => defaultsForm()?.subscribe(listener) ?? (() => {})
+  /** No defaults while the Settings document is still loading, so an empty read seeds nothing. */
+  const NO_DEFAULTS: Readonly<GenerationDefaults> = {}
   /** Blank conversations that already received the Settings defaults, so a re-render records them only once. */
   const seeded = new Set<string>()
   function ConversationModels({ sessionId }: { sessionId: string }) {
     const projectId = useSyncExternalStore(currentProject.subscribe, currentProject.getSnapshot)
     const state = states(projectId ?? '')
     const project = useSyncExternalStore(state.subscribe, state.getSnapshot)
-    // With no project open, the picker edits the Settings default a new conversation starts on.
-    const save = async (modality: string, selection: { provider: string; model: string } | null) => {
+    const settings = useSyncExternalStore(subscribeDefaults, defaultsSnapshot)
+    const defaults = settings?.status === 'ready' ? settings.value?.defaults ?? NO_DEFAULTS : NO_DEFAULTS
+    // One write per gesture: a conversation records each media type in turn, while the home picker replaces the whole
+    // Settings defaults object in one mutation so clearing several media types cannot collide on one revision.
+    const save = async (writes: readonly (readonly [string, { provider: string; model: string } | null])[]): Promise<void> => {
+      if (writes.length === 0) return
       if (projectId !== null) {
-        await client.runOperation({ project: projectId, session: sessionId, surface: 'chat', operation: 'models.select',
-          params: { modality, ...selection === null ? { provider: '', model: '' } : selection } })
+        for (const [modality, selection] of writes) {
+          await client.runOperation({ project: projectId, session: sessionId, surface: 'chat', operation: 'models.select',
+            params: { modality, ...selection === null ? { provider: '', model: '' } : selection } })
+        }
         return
       }
       const form = defaultsForm()
       const current = form?.getSnapshot()
-      if (form === undefined || current === undefined) throw new Error('Settings are unavailable.')
-      const next = Object.fromEntries(Object.entries(current.value?.defaults ?? {})
-        .filter(([kind]) => kind !== modality))
-      if (selection !== null) next[modality] = selection
+      if (form === undefined || current === undefined || current.status !== 'ready') throw new Error('Settings are unavailable.')
+      const written = new Set(writes.map(([modality]) => modality))
+      const next: GenerationDefaults = Object.fromEntries(Object.entries(current.value?.defaults ?? {})
+        .filter(([modality]) => !written.has(modality)))
+      for (const [modality, selection] of writes) {
+        if (selection !== null) next[modality] = selection
+      }
       if (!await form.mutate([{ op: 'set', path: ['defaults'], value: next }], current.revision)) {
         throw new Error('Settings changed elsewhere. Try again.')
       }
     }
     useEffect(() => {
-      if (projectId === null || project === null || seeded.has(sessionId)) return
+      // Seeding waits for the Settings document itself: reading it mid-load would record an empty defaults object.
+      if (projectId === null || project === null || settings?.status !== 'ready' || seeded.has(sessionId)) return
       const summaries: Readonly<Record<string, { blank: boolean } | undefined>> = ctx.sessions.list.getSnapshot().byId
       if (summaries[sessionId]?.blank !== true) return
       const slice = project.components['models'] as { conversations?: Record<string, unknown> } | undefined
       if (slice?.conversations?.[sessionId] !== undefined) return
-      const defaults = defaultsForm()?.getSnapshot().value?.defaults ?? {}
       seeded.add(sessionId)
-      for (const [modality, selection] of Object.entries(defaults)) {
-        // A default whose model is no longer configured stays Auto; the conversation's picker shows the outcome.
-        save(modality, selection).catch((_unavailable: unknown) => undefined)
-      }
-    }, [projectId, project, sessionId])
+      const chosen = Object.entries(settings.value?.defaults ?? NO_DEFAULTS)
+      // A default whose model is no longer configured stays Auto; the conversation's picker shows the outcome.
+      if (chosen.length > 0) save(chosen).catch((_unavailable: unknown) => undefined)
+    }, [projectId, project, sessionId, settings])
     return createElement(ModelPickers, {
       key: `${projectId ?? ''}:${sessionId}`, sessionId, state, models, reloadModels: models.reload, save,
-      defaults: defaultsForm()?.getSnapshot().value?.defaults ?? {},
+      defaults,
       logoOf: provider => ctx.get('dvCloudModels')?.getSnapshot().find(entry => entry.id === provider)?.logo,
     })
   }

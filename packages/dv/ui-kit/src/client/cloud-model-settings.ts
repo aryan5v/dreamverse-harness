@@ -56,6 +56,8 @@ export interface CloudModelSettings {
   load(apiKey: string, signal: AbortSignal): Promise<CloudCatalogResult>
   setEnabled(model: CloudModel, enabled: boolean): Promise<void>
   enableOperator?(apiKey: string): Promise<void>
+  /** Stop the provider's key from serving chat requests, keeping the key itself saved. */
+  disableOperator?(this: void): Promise<void>
   /**
    * Whether the provider's saved key is already the one its chat route uses,
    * read from the live operator settings.

@@ -9,6 +9,8 @@ interface Options {
   storeKey(ref: string, key: string): Promise<void>
   discover(signal?: AbortSignal): Promise<OpenRouterCatalog>
   enableOperator(ref: string): Promise<void>
+  /** Stop the saved key from serving chat requests. */
+  disableOperator(): Promise<void>
   /** Whether the chat route already carries this provider's key. */
   operatorEnabled(): boolean
   account(signal: AbortSignal): Promise<CloudAccount>
@@ -22,7 +24,9 @@ const media: readonly CloudMedia[] = ['video', 'image', 'audio']
  * @param options - the existing catalog and credential operations.
  * @returns the OpenRouter contribution.
  */
-export function openRouterSettings({ form, storeKey, discover, enableOperator, operatorEnabled, account }: Options): CloudModelSettings {
+export function openRouterSettings({
+  form, storeKey, discover, enableOperator, disableOperator, operatorEnabled, account,
+}: Options): CloudModelSettings {
   const settings = cloudSelection(form, state => ({
     writable: state.status === 'ready' && state.writable,
     enabled: media.flatMap(kind => [...new Set(Object.values(state.value?.[fields[kind]] ?? {}))]
@@ -67,6 +71,7 @@ export function openRouterSettings({ form, storeKey, discover, enableOperator, o
       await discover()
       await enableOperator(ref)
     },
+    disableOperator,
     operatorEnabled,
   }
 }

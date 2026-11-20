@@ -39,6 +39,15 @@
 .chevron { color: var(--dsw-alias-label-tertiary); transition: transform 150ms ease; }
 .chevron[data-open='true'] { transform: rotate(90deg); }
 .deviceDetails { display: flex; flex-direction: column; gap: 12px; padding: 0 16px 16px 60px; }
+.models { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 0.5px solid var(--dsw-alias-border-l4); border-radius: 10px; background: var(--dsw-alias-bg-layer-2, transparent); }
+.modelsHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.modelsList { display: flex; flex-direction: column; list-style: none; padding: 0; margin: 0; }
+.modelRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; }
+.modelRow + .modelRow { border-block-start: 0.5px solid var(--dsw-alias-border-l4); }
+.modelName { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; line-height: 1.4; }
+.modelName strong { font-weight: 500; overflow-wrap: anywhere; }
+.modelName span, .modelNote { color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+.modelNote { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; }
 .facts { display: grid; gap: 6px; margin: 0; }
 .facts > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px; font-size: 13px; line-height: 20px; }
 .facts dt { color: var(--dsw-alias-label-tertiary); }

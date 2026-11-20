@@ -117,11 +117,33 @@ describe('conversation model choices', () => {
     expect(within(list).queryByRole('option', { name: /Pika H3 Flex/ })).toBeNull()
     fireEvent.click(within(list).getByRole('option', { name: /FLUX 3/ }))
     await act(async () => {})
-    expect(save).toHaveBeenCalledWith('image', { provider: 'openrouter', model: 'flux' })
+    expect(save).toHaveBeenCalledWith([['image', { provider: 'openrouter', model: 'flux' }]])
     fireEvent.click(view.getByRole('button', { name: 'Generation model: Pika H3 Flex' }))
     fireEvent.click(within(within(document.body).getByRole('listbox', { name: 'Generation model' })).getByRole('option', { name: /Pika H3 Flex/ }))
     await act(async () => {})
-    expect(save).toHaveBeenLastCalledWith('video', null)
+    expect(save).toHaveBeenLastCalledWith([['video', null]])
+  })
+
+  it('clears every chosen media type in one write, and shows a default only before the conversation chooses', async () => {
+    const state = createSnapshotStore(fixtureState())
+    const catalog = createSnapshotStore<readonly WireModelEntry[] | null>([model('pika'), image('flux')])
+    const save = vi.fn(async () => {})
+    const defaults = { video: { provider: 'fastvideo', model: 'pika' }, image: { provider: 'openrouter', model: 'flux' } }
+    const view = render(<ModelPickers sessionId="s1" state={state} models={catalog} reloadModels={() => {}} save={save}
+      defaults={defaults} />)
+    // No project choice yet: the saved defaults stand in, and one gesture clears both at once.
+    fireEvent.click(view.getByRole('button', { name: 'Generation model: Pika H3 Flex +1' }))
+    fireEvent.click(within(within(document.body).getByRole('listbox', { name: 'Generation model' }))
+      .getByRole('option', { name: /Auto · the director chooses/ }))
+    await act(async () => {})
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(save).toHaveBeenCalledWith([['video', null], ['image', null]])
+    // Once the conversation holds a choice, a media type it left on Auto no longer shows the default.
+    state.update((draft) => {
+      (draft.components as Record<string, unknown>)['models'] = { conversations: { s1: {} } }
+    })
+    await act(async () => {})
+    expect(view.getByRole('button', { name: 'Generation model: Auto' })).toBeTruthy()
   })
 
   it('keeps its catalog subscriptions across re-renders, so a re-render loads no catalog', async () => {

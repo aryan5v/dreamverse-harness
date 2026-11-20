@@ -572,6 +572,48 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+.removeZone {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+.confirmRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.danger {
+  align-self: flex-start;
+  height: 28px;
+  padding: 0 12px;
+  border: 0.5px solid var(--dsw-alias-state-error-primary);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-state-error-primary);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.removeZone .danger {
+  align-self: flex-end;
+}
+
+.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
+}
+
+.danger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .chip[aria-pressed='true'] {
   border-color: var(--dsw-alias-label-secondary);
   background: var(--dsw-alias-interactive-bg-hover);

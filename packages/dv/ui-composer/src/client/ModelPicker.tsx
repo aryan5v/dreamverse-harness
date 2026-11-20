@@ -123,7 +123,8 @@ export function ModelPicker({ sessionId, modality, state, models, reloadModels, 
 }
 
 export interface ModelPickersProps extends Omit<ModelPickerProps, 'modality' | 'save'> {
-  save: (modality: PickerModality, selection: Selection | null) => Promise<unknown>
+  /** Record one gesture's writes: a conversation records each media type, and the home picker folds them into one. */
+  save: (writes: readonly (readonly [PickerModality, Selection | null])[]) => Promise<unknown>
   /** The Settings defaults a conversation starts on, shown while the conversation has no choice of its own. */
   defaults?: Readonly<Partial<Record<PickerModality, Selection>>>
   /** The logo of a provider, when its plugin draws one. */
@@ -151,9 +152,12 @@ export function ModelPickers({ sessionId, state, models, reloadModels, save, log
     ({ video: pick('视频', 'Video'), image: pick('图片', 'Image'), audio: pick('音频', 'Audio') })[modality]
   const reachable = (catalog ?? []).filter(entry => entry.schema !== null)
   const choices = PICKER_MODALITIES.flatMap(modality => modelChoices(reachable, modality).map(entry => ({ modality, entry })))
+  const started = (project?.components['models'] as { conversations?: Record<string, unknown> } | undefined)
+    ?.conversations?.[sessionId] !== undefined
   const selected = new Map(PICKER_MODALITIES.flatMap((modality) => {
-    // A conversation without a choice of its own shows the Settings default it would start on.
-    const choice = selectedModel(project, sessionId, modality) ?? defaults[modality] ?? null
+    // The Settings default stands in only until the conversation records a choice of its own: a media type the person
+    // already returned to Auto stays Auto, because showing a default there would disagree with the next generation.
+    const choice = selectedModel(project, sessionId, modality) ?? (started ? null : defaults[modality] ?? null)
     return choice === null ? [] : [[modality, choice] as const]
   }))
   const providerIds = [...new Set(choices.map(({ entry }) => entry.provider))]
@@ -201,7 +205,8 @@ export function ModelPickers({ sessionId, state, models, reloadModels, save, log
     if (writes.length === 0) return true
     setSaving(true)
     setFailure(null)
-    Promise.all(writes.map(([modality, selection]) => save(modality, selection)))
+    Promise.resolve()
+      .then(async () => await save(writes))
       .catch((error: unknown) => { setFailure(errorMessage(error)) })
       .finally(() => { setSaving(false) })
     return true

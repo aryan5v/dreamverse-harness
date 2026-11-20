@@ -1,5 +1,5 @@
 /** The default LLM and the model a new conversation starts on for each generation media type. */
-import { useEffect, useId, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { IconChevronDownOutlineRegular, Menu, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -31,13 +31,15 @@ function useForm<T>(form: ConfigForm<T>) {
 }
 
 /** One labelled row with a menu of models. */
-function ModelRow({ title, help, value, items, disabled, onSelect }: {
+function ModelRow({ title, help, value, items, disabled, onSelect, onOpen }: {
   title: string
   help: string
   value: { label: string; icon?: ReactNode }
   items: readonly MenuEntry[]
   disabled: boolean
   onSelect: (id: string) => void
+  /** Read the catalogs again, so a provider connected on this page offers its models in this menu. */
+  onOpen?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const labelId = useId()
@@ -47,7 +49,7 @@ function ModelRow({ title, help, value, items, disabled, onSelect }: {
       selectedId={undefined} onSelect={(id) => { setOpen(false); onSelect(id) }}
       anchor={<button type="button" className={css.picker} aria-haspopup="menu" aria-expanded={open}
         aria-labelledby={labelId} aria-describedby={undefined} disabled={disabled}
-        onClick={() => { setOpen(current => !current) }}>
+        onClick={() => { if (!open) onOpen?.(); setOpen(current => !current) }}>
         {value.icon}<span className={css.pickerLabel}>{value.label}</span><IconChevronDownOutlineRegular size={12} />
       </button>} />
   </li>
@@ -67,19 +69,29 @@ export function DefaultModels({ source, providers: registry }: DefaultModelsProp
   const [entries, setEntries] = useState<readonly WireModelEntry[]>([])
   const [failure, setFailure] = useState<string | null>(null)
   const headingId = useId()
+  const live = useRef(true)
   useEffect(() => {
-    let active = true
+    live.current = true
+    return () => { live.current = false }
+  }, [])
+  /** Re-read both catalogs: the page changes provider settings, so a menu opened later must not offer a stale list. */
+  const refresh = useCallback(() => {
     const controller = new AbortController()
-    source.llmCatalog().then((value) => { if (active) setCatalog(value) }, (_unavailable: unknown) => {
+    source.llmCatalog().then((value) => { if (live.current) setCatalog(value) }, (_unavailable: unknown) => {
       // Without a catalog the row still shows the saved default and offers no other choice.
-      if (active) setCatalog(null)
+      if (live.current) setCatalog(null)
     })
-    source.mediaCatalog(controller.signal).then((value) => { if (active) setEntries(value) }, (_unavailable: unknown) => {
-      // The generation rows offer Auto alone until the catalog loads.
-      if (active) setEntries([])
-    })
-    return () => { active = false; controller.abort() }
+    source.mediaCatalog(controller.signal).then((value) => { if (live.current) setEntries(value) },
+      (_unavailable: unknown) => {
+        // The generation rows offer Auto alone until the catalog loads.
+        if (live.current) setEntries([])
+      })
+    return controller
   }, [source])
+  useEffect(() => {
+    const controller = refresh()
+    return () => { controller.abort() }
+  }, [refresh])
 
   const logoOf = (provider: string) => {
     const match = providers.find(entry => entry.id === provider)
@@ -130,6 +142,7 @@ export function DefaultModels({ source, providers: registry }: DefaultModelsProp
         value={llmValue === null ? { label: text('未设置', 'Not set') }
           : { label: llmModel?.name ?? llmValue.model, icon: logoOf(llmValue.provider) }}
         items={llmItems} disabled={llm.status !== 'ready' || !llm.writable || llmItems.length === 0}
+        onOpen={refresh}
         onSelect={(id) => {
           const [provider, model] = JSON.parse(id) as [string, string]
           void write(source.llmForm as ConfigForm<never>, [
@@ -151,6 +164,7 @@ export function DefaultModels({ source, providers: registry }: DefaultModelsProp
               label: `${choice.display_name ?? choice.model} · ${providerName(choice.provider)}`, icon: logoOf(choice.provider) })),
           ]}
           disabled={media.status !== 'ready' || !media.writable}
+          onOpen={refresh}
           onSelect={(id) => {
             const next = Object.fromEntries(Object.entries(defaults).filter(([kind]) => kind !== row.media))
             if (id !== '') {

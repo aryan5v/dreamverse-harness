@@ -17,7 +17,6 @@
  * the declaration. The types therefore live with their declarer.
  */
 
-import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ModelsOperations } from './operations.ts'
@@ -82,12 +81,16 @@ export interface ModelsHeaderOwnerProps {
   writable: boolean
   /** The Host operations a provider editor writes and interrogates through. */
   operations: ModelsOperations
+  /**
+   * Remove one user-added provider profile, with the credential this page manages for it, and refresh the join.
+   * @param row - the joined row to remove; the section decides which credential, if any, belongs to it.
+   * @returns the failure message, or undefined once the removal landed.
+   */
+  remove(row: ProviderRow): Promise<string | undefined>
   /** Settings-owned schema and immutable path operations. */
   schema: SettingsSchemaOperations
   /** The join's load state, so an editor opened meanwhile can wait for it. */
   status: ModelsSettingsState['status']
   /** Section copy, over the dictionary the page uses. */
   t: (key: keyof typeof en) => string
-  /** The registered header entries, so a page knows whether it draws the provider list. */
-  headerEntries: HostObservable<number>
 }

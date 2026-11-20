@@ -10,9 +10,19 @@ import { errorMessage } from '@dv/ui-kit/api.ts'
 import { useCopy } from './locales.ts'
 import css from './RuntimeSettings.module.css'
 
+/** One model a worker reports, with the tasks it serves and whether its weights are held. */
+export interface InstalledModel { id: string; tasks: string[]; installed: boolean; loaded: boolean }
+
+/** The installed-model catalog and residency actions of the configured devices. */
+export interface DeviceModels {
+  catalog(this: void, worker: string): Promise<InstalledModel[]>
+  action(this: void, worker: string, action: 'load' | 'unload', model: string, task: string): Promise<void>
+}
+
 export interface HardwareProps {
   form: ConfigForm<{ workers: Record<string, WorkerConfig> }>
   routing: ConfigForm<{ useHardware: boolean }>
+  models: DeviceModels
   check(this: void): Promise<WorkerView[]>
   runpodPods(this: void, ref: string): Promise<RunPodView[]>
   storeCredential(this: void, ref: string, value: string): Promise<void>
@@ -33,13 +43,20 @@ function DeviceGlyph() {
 }
 
 /** Save worker coordinates without exposing saved keys or accepting private keys. */
-export function HardwarePage({ form, routing, check, storeCredential, removeCredential, runpodPods }: HardwareProps) {
+export function HardwarePage({ form, routing, models, check, storeCredential, removeCredential, runpodPods }: HardwareProps) {
   const t = useCopy()
   const snapshot = useSyncExternalStore(
     useCallback(listener => form.subscribe(listener), [form]), useCallback(() => form.getSnapshot(), [form]))
   const routingState = useSyncExternalStore(
     useCallback(listener => routing.subscribe(listener), [routing]), useCallback(() => routing.getSnapshot(), [routing]))
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [catalog, setCatalog] = useState<{
+    worker: string
+    status: 'loading' | 'ready' | 'failed'
+    rows: InstalledModel[]
+    failure: string | null
+  } | null>(null)
+  const [modelPending, setModelPending] = useState<string | null>(null)
   const [views, setViews] = useState<WorkerView[]>([])
   const [editor, setEditor] = useState<{
     id: string
@@ -125,6 +142,26 @@ export function HardwarePage({ form, routing, check, storeCredential, removeCred
       setNotice(t.removed); setRemoving(null); setViews(previous => previous.filter(view => view.id !== id))
     } catch (error) { setFailure(errorMessage(error)) } finally { setPending(false) }
   }
+  /** Read one device's installed catalog; an answer for a device the person already left is dropped. */
+  const readModels = async (worker: string): Promise<void> => {
+    setCatalog({ worker, status: 'loading', rows: [], failure: null })
+    try {
+      const rows = await models.catalog(worker)
+      setCatalog(current => current?.worker === worker ? { worker, status: 'ready', rows, failure: null } : current)
+    } catch (error) {
+      setCatalog(current => current?.worker === worker
+        ? { worker, status: 'failed', rows: [], failure: errorMessage(error) } : current)
+    }
+  }
+  const act = async (worker: string, model: InstalledModel, kind: 'load' | 'unload'): Promise<void> => {
+    setModelPending(`${worker}:${model.id}`)
+    setFailure(null)
+    try {
+      await models.action(worker, kind, model.id, model.tasks[0] ?? '')
+      setNotice(t.actionDone)
+      await readModels(worker)
+    } catch (error) { setFailure(errorMessage(error)) } finally { setModelPending(null) }
+  }
   const ready = views.filter(view => view.enabled && view.status === 'ready').length
   const ids = Object.keys(workers)
   return <section className={css.page}>
@@ -155,7 +192,8 @@ export function HardwarePage({ form, routing, check, storeCredential, removeCred
             const placement = worker.transport === 'ssh' ? t.ssh : worker.baseUrl.endsWith('.proxy.runpod.net') ? t.runpod : isLoopback(worker.baseUrl) ? t.local : t.api
             const open = expanded === id
             return <li key={id} className={css.device}>
-              <button type="button" className={css.deviceRow} aria-expanded={open} onClick={() => { setExpanded(open ? null : id) }}>
+              <button type="button" className={css.deviceRow} aria-expanded={open}
+                onClick={() => { setExpanded(open ? null : id); if (!open) void readModels(id) }}>
                 <span className={css.deviceMark} aria-hidden="true"><DeviceGlyph /></span>
                 <span className={css.identity}><strong>{worker.label}</strong>
                   <span className={css.meta}><span className={css.dot} data-status={status} />{t[status]}, {placement}</span></span>
@@ -163,6 +201,31 @@ export function HardwarePage({ form, routing, check, storeCredential, removeCred
                 <IconChevronRightOutlineRegular size={14} className={css.chevron} data-open={open} />
               </button>
               {!open ? null : <div className={css.deviceDetails}>
+                <div className={css.models}>
+                  <div className={css.modelsHead}>
+                    <strong>{t.models}</strong>
+                    <button type="button" className={css.iconButton} aria-label={t.refresh} title={t.refresh}
+                      onClick={() => { void readModels(id) }}><IconRefreshOutlineRegular size={14} /></button>
+                  </div>
+                  {catalog?.worker !== id ? null : catalog.status === 'loading'
+                    ? <p className={css.modelNote}>{t.loadingModels}</p>
+                    : catalog.status === 'failed'
+                      ? <div role="alert" className={css.modelNote}><p>{catalog.failure ?? t.refreshFailed}</p>
+                        <Button size="sm" onClick={() => { void readModels(id) }}>{t.retry}</Button></div>
+                      : catalog.rows.length === 0
+                        ? <p className={css.modelNote}>{t.emptyModels}</p>
+                        : <ul className={css.modelsList}>{catalog.rows.map((model) => {
+                          const busy = modelPending === `${id}:${model.id}`
+                          return <li key={model.id} className={css.modelRow}>
+                            <span className={css.modelName}><strong>{model.id}</strong>
+                              <span>{model.tasks.map(task => task.toUpperCase()).join(' · ')}</span></span>
+                            <Button size="sm" disabled={!writable || held || busy || !model.installed}
+                              onClick={() => { void act(id, model, model.loaded ? 'unload' : 'load') }}>
+                              {busy ? t.loadPending : model.loaded ? t.unload : t.load}
+                            </Button>
+                          </li>
+                        })}</ul>}
+                </div>
                 <dl className={css.facts}>
                   <div><dt>{t.resident}</dt><dd>{view?.loadingModel != null ? `${t.loading}: ${view.loadingModel}` : view?.loadedModel ?? t.none}</dd></div>
                   <div><dt>{t.transport}</dt><dd className={css.coordinate}>{worker.transport === 'ssh' ? `${worker.sshHost} → ${worker.remoteHost}:${worker.remotePort}` : worker.baseUrl}</dd></div>

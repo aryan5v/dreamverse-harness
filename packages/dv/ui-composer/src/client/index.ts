@@ -35,6 +35,7 @@ import type {} from '@dv/ui-canvas/contract'
 import type {} from '@dv/ui-media/contract'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@dv/ui-kit/cloud-model-settings.ts'
 import { askAgentAction, UseAssetAction } from './actions.tsx'
 import { LlmPicker, type LlmPickerInjected } from './LlmPicker.tsx'
@@ -71,6 +72,48 @@ interface CommandMenu {
   }): () => void
 }
 
+/** How long a readiness read waits for a settings namespace that is still loading before it gives up. */
+const SETTINGS_WAIT_MS = 2000
+
+/**
+ * Read one settings form once its first load has settled, so an unloaded document is not mistaken for an unconfigured
+ * provider.
+ * @param form - the shared form of one settings namespace.
+ * @returns the first settled snapshot, or undefined when the form stayed loading.
+ */
+async function settledSettings(form: ConfigForm<unknown>): Promise<ConfigFormSnapshot<unknown> | undefined> {
+  const first = form.getSnapshot()
+  if (first.status !== 'loading') return first
+  return await new Promise((resolve) => {
+    let stop = (): void => {}
+    const finish = (snapshot: ConfigFormSnapshot<unknown> | undefined): void => {
+      clearTimeout(timer)
+      stop()
+      resolve(snapshot)
+    }
+    const timer = setTimeout(() => { finish(undefined) }, SETTINGS_WAIT_MS)
+    stop = form.subscribe(() => {
+      const next = form.getSnapshot()
+      if (next.status !== 'loading') finish(next)
+    })
+  })
+}
+
+/**
+ * Read a provider's profile inside its settings section.
+ * @param value - the section value of the provider's settings namespace.
+ * @param path - the path the provider directory declares; empty when the section itself is the profile.
+ * @returns the profile, or undefined when nothing is configured there.
+ */
+function profileAt(value: unknown, path: readonly string[]): unknown {
+  let node = value
+  for (const key of path) {
+    if (typeof node !== 'object' || node === null) return undefined
+    node = (node as Record<string, unknown>)[key]
+  }
+  return node
+}
+
 /**
  * Provide `dvMentions` and register the composer additions.
  * @param ctx - client root context.
@@ -99,17 +142,20 @@ export function apply(ctx: ClientContext): void {
             const catalog = response.value
             const directory = await scope.remote.llm.listConfigurableProviders()
             if (!directory.ok) return catalog.routableProviders
-            const refOf = (id: string): string => `${id.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`
-            const described = await scope.remote.credentials.describe(directory.value.map(entry => refOf(entry.provider)))
-            if (!described.ok) return catalog.routableProviders
-            // A declared provider that holds no key cannot serve a request, so it is not offered; the deployment
-            // default stays because the agent already runs on it.
-            const ready = new Set(directory.value
-              .filter(entry => described.value[refOf(entry.provider)]?.configured === true)
-              .map(entry => entry.provider))
-            ready.add(catalog.default.provider)
-            const declared = new Set(directory.value.map(entry => entry.provider))
-            return catalog.routableProviders.filter(id => !declared.has(id) || ready.has(id))
+            const forms = scope.get('configForms')
+            if (forms === undefined) return catalog.routableProviders
+            // A configurable route serves requests only once its settings profile exists, which is the same join the
+            // Models page uses: the profile names its own key reference, or none at all for a keyless local server.
+            const configured = new Set<string>()
+            const declared = new Set<string>()
+            for (const entry of directory.value) {
+              const settings = await settledSettings(forms.get<unknown>(entry.settingsNs))
+              if (settings === undefined) return catalog.routableProviders
+              declared.add(entry.provider)
+              if (profileAt(settings.value, entry.settingsPath) !== undefined) configured.add(entry.provider)
+            }
+            configured.add(catalog.default.provider)
+            return catalog.routableProviders.filter(id => !declared.has(id) || configured.has(id))
           },
           logoOf: provider => scope.get('dvCloudModels')?.getSnapshot().find(entry => entry.id === provider)?.logo,
         }

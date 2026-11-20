@@ -176,10 +176,15 @@ export function Connections({ providers: registry, connections, page }: Injected
   const [managing, setManaging] = useState<string | null>(null)
   const [picking, setPicking] = useState('')
   const [mediaFilter, setMediaFilter] = useState<CloudMedia | 'llm' | ''>('')
+  const [confirmingRemove, setConfirmingRemove] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const [removeFailure, setRemoveFailure] = useState<string | null>(null)
   const headingId = useId()
   const drawerTitleId = useId()
   useEffect(() => { connections.ensure(providers.map(({ provider }) => provider)) }, [connections, providers])
   useEffect(() => {
+    setConfirmingRemove(false)
+    setRemoveFailure(null)
     if (drawer === null) return
     const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setDrawer(null) }
     document.addEventListener('keydown', close)
@@ -200,6 +205,16 @@ export function Connections({ providers: registry, connections, page }: Injected
     : mediaFilter === 'llm' ? provider.enableOperator !== undefined : provider.media.includes(mediaFilter))
     && (needle === '' || provider.name.toLowerCase().includes(needle)))
   const connected = generation.length + llm.length
+  const removeEditing = async (): Promise<void> => {
+    if (editing === undefined || page === undefined) return
+    setRemoving(true)
+    setRemoveFailure(null)
+    try {
+      const failure = await page.remove(editing)
+      if (failure !== undefined) setRemoveFailure(failure)
+      else setDrawer(null)
+    } finally { setRemoving(false) }
+  }
   return <section className={css.group} aria-labelledby={headingId}>
     <header className={css.groupHeading}>
       <h3 id={headingId}>{text('你的连接', 'Your connections')}</h3>
@@ -298,6 +313,24 @@ export function Connections({ providers: registry, connections, page }: Injected
                   {...editing.entry.declared === true ? { declared: true } : {}}
                   autoFocusCredential={editing.credential?.configured !== true}
                   onClose={() => { setDrawer(null) }} />
+                {editing.removable && page.writable ? <div className={css.removeZone}>
+                  {confirmingRemove ? <>
+                    <p className={css.hint}>{text(`移除 ${editing.entry.displayName}？此页面管理的密钥也会一并删除。`,
+                      `Remove ${editing.entry.displayName}? The key this page manages is deleted with it.`)}</p>
+                    <div className={css.confirmRow}>
+                      <button type="button" className={css.chip} onClick={() => { setConfirmingRemove(false) }}>
+                        {text('取消', 'Cancel')}
+                      </button>
+                      <button type="button" className={css.danger} disabled={removing}
+                        onClick={() => { void removeEditing() }}>
+                        {removing ? text('正在移除…', 'Removing…') : text('移除连接', 'Remove connection')}
+                      </button>
+                    </div>
+                  </> : <button type="button" className={css.danger} onClick={() => { setConfirmingRemove(true) }}>
+                    {text('移除连接', 'Remove connection')}
+                  </button>}
+                  {removeFailure === null ? null : <p className={css.error} role="alert">{removeFailure}</p>}
+                </div> : null}
               </>
               : drawer.kind === 'custom' && piAi !== undefined && page !== undefined
                 ? <>
@@ -403,7 +436,7 @@ function ProviderKeyForm({ provider, state, account, connections, onClose, embed
   const catalog = catalogs.get(provider.id)
   const [key, setKey] = useState('')
   const [pending, setPending] = useState(false)
-  const [result, setResult] = useState<SaveResult | 'operator' | 'operatorFailed' | null>(null)
+  const [result, setResult] = useState<SaveResult | 'operator' | 'operatorDisabled' | 'operatorFailed' | null>(null)
   const titleId = useId()
   const keyId = useId()
   useEffect(() => {
@@ -412,8 +445,10 @@ function ProviderKeyForm({ provider, state, account, connections, onClose, embed
     return () => { document.removeEventListener('keydown', onKey) }
   }, [onClose])
   const saved = account?.status === 'connected' || account?.status === 'rejected' || account?.status === 'unavailable'
-  // The chat option follows the operator profile, so a key saved earlier still reads as enabled after a reload.
-  const chatEnabled = provider.operatorEnabled?.() === true || result === 'operator'
+  // The chat option follows the operator profile, so a key saved earlier still reads as enabled after a reload; the
+  // last write wins over that read so the box reflects the click before the profile comes back.
+  const chatEnabled = result === 'operatorDisabled' ? false
+    : result === 'operator' || provider.operatorEnabled?.() === true
   const save = async (): Promise<void> => {
     setPending(true)
     setResult(null)
@@ -434,6 +469,17 @@ function ProviderKeyForm({ provider, state, account, connections, onClose, embed
       setResult('operatorFailed')
     } finally { setPending(false) }
   }
+  const stopOperator = async (): Promise<void> => {
+    setPending(true)
+    setResult(null)
+    try {
+      await provider.disableOperator?.()
+      setResult('operatorDisabled')
+    } catch (_refused) {
+      // The provider refused the write or the operator settings changed; the sheet reports it in place.
+      setResult('operatorFailed')
+    } finally { setPending(false) }
+  }
   const counts = catalog?.status === 'ready'
     ? provider.media.map(media => [media, catalog.models.filter(model => model.media === media).length] as const)
     : []
@@ -443,6 +489,7 @@ function ProviderKeyForm({ provider, state, account, connections, onClose, embed
     rejected: [text(`${provider.name} 拒绝了此密钥。请检查后重试。`, `${provider.name} rejected this key. Check it and try again.`), true],
     failed: [text('无法连接。请检查密钥和网络后重试。', 'Could not connect. Check the key and your network, then try again.'), true],
     operator: [text('现在可以在聊天中选择 OpenRouter LLM。', 'You can now pick OpenRouter LLMs in chat.'), false],
+    operatorDisabled: [text('此提供商不再提供聊天 LLM。', 'This provider no longer serves chat LLMs.'), false],
     operatorFailed: [text('无法启用聊天 LLM。请检查密钥。', 'Could not enable chat LLMs. Check the key.'), true],
   }[result]
   return <form className={css.sheet} role="dialog" aria-modal="true" aria-labelledby={titleId}
@@ -492,7 +539,7 @@ function ProviderKeyForm({ provider, state, account, connections, onClose, embed
         {catalog?.status === 'ready' && catalog.warning !== undefined ? <p className={css.error} role="alert">{catalog.warning}</p> : null}
         {provider.enableOperator === undefined ? null : <label className={css.checkRow}>
           <input type="checkbox" checked={chatEnabled} disabled={pending || !state.writable || account?.status !== 'connected'}
-            onChange={(event) => { if (event.target.checked) void enableOperator() }} />
+            onChange={(event) => { void (event.target.checked ? enableOperator() : stopOperator()) }} />
           <span>{text('也用于聊天 LLM', 'Also use for chat LLMs')}</span>
         </label>}
       </section>

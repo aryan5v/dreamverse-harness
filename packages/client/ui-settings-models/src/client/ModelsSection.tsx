@@ -21,10 +21,10 @@
  * post-apply reload.
  */
 
-import { useId, useState, useSyncExternalStore } from 'react'
+import { useId, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Button, IconPlusOutlineRegular, Modal, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { HostObservable, InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable, InjectFace, PropsRenderSlots, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls this package's SlotMap merge (the two Models child slots).
 import type {} from './slot-contract.ts'
@@ -44,6 +44,11 @@ export interface ModelsSectionInjected {
   hooks: {
     /** Page snapshot bound by the UI renderer as useSnapshot. */
     snapshot: ModelsSettingsStore['store']
+    /**
+     * The registered header entries, bound as useHeaderEntries; a nonzero count hands the provider list to them.
+     * Absent when a header registers before this page exists, which the section reads as no header.
+     */
+    headerEntries: HostObservable<number>
   }
   /** The Host operations the section and its cards invoke. */
   operations: ModelsOperations
@@ -51,8 +56,6 @@ export interface ModelsSectionInjected {
   schema: SettingsSchemaOperations
   /** Section copy. */
   t: (key: keyof typeof en) => string
-  /** The registered header entries; a nonzero count hands the provider list to them. Absent in a bare render. */
-  headerEntries?: HostObservable<number>
 }
 
 /**
@@ -223,26 +226,27 @@ export function providerCopy(template: string, target: ProviderIdentity): string
  * @returns the section, or null while the shell has not injected yet.
  */
 export function ModelsSection(props: ModelsSectionProps): ReactNode {
-  const { controller, useSnapshot, operations, schema, t, headerEntries, renderSlot } = props
+  const { controller, useSnapshot, operations, schema, t, useHeaderEntries, renderSlot } = props
   if (
     controller === undefined || useSnapshot === undefined || operations === undefined
     || schema === undefined || t === undefined
   ) return null
-  const injected: ModelsSectionFace = { controller, useSnapshot, operations, schema, t }
-  if (headerEntries !== undefined) injected.headerEntries = headerEntries
+  const injected: ModelsSectionFace = {
+    controller, useSnapshot, operations, schema, t, useHeaderEntries: useHeaderEntries ?? noHeaderEntries,
+  }
   return <Loaded injected={injected} renderSlot={renderSlot} />
 }
 
 /** The header count of a page rendered without a slot ledger, such as in a unit test. */
-const NO_HEADER_ENTRIES: HostObservable<number> = { getSnapshot: () => 0, subscribe: () => () => {} }
+const noHeaderEntries: SnapshotSelectorHook<number> = selector => selector(0)
 
 function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderSlot: ModelsRenderSlot }): ReactNode {
   const { controller, operations, schema, t } = injected
-  const headerEntries = injected.headerEntries ?? NO_HEADER_ENTRIES
+  const { useHeaderEntries } = injected
   const state = injected.useSnapshot(snapshot => snapshot)
   // A registered header draws the provider list itself, so this page keeps only
   // its title, notices, and the extension areas.
-  const headerOwned = useSyncExternalStore(headerEntries.subscribe, headerEntries.getSnapshot) > 0
+  const headerOwned = useHeaderEntries(count => count) > 0
   const [editing, setEditing] = useState<EditorTarget | undefined>(undefined)
   const [addOpen, setAddOpen] = useState(false)
   const [addMode, setAddMode] = useState<AddMode>('catalog')
@@ -402,10 +406,10 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
         namespaces: state.namespaces,
         writable: state.writable,
         operations,
+        remove: row => removeProviderProfile(operations, controller, targetOf(row)),
         schema,
         status: state.status,
         t,
-        headerEntries,
       })}
       {headerOwned ? null : <>
         <div className={styles['groupHeading']}>

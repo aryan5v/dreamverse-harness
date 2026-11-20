@@ -119,11 +119,10 @@ export function apply(ctx: ClientContext): void {
   }
   const injected = (): ModelsSectionInjected => ({
     controller,
-    hooks: { snapshot: controller.store },
+    hooks: { snapshot: controller.store, headerEntries },
     operations,
     schema,
     t,
-    headerEntries,
   })
   const deepSeekOnboardingInjected = (): DeepSeekOnboardingInjected => ({
     automatic: credentialOnboarding,

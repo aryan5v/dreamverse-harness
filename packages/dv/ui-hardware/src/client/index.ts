@@ -5,8 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { RunPodView, WorkerConfig, WorkerView } from '@dv/hardware/types'
 import { currentLanguage } from '@dv/ui-kit/locale.ts'
-import { HardwarePage } from './HardwarePage.tsx'
-import type { InstalledModel } from './ModelsPage.tsx'
+import { HardwarePage, type InstalledModel } from './HardwarePage.tsx'
 import { en, zh } from './locales.ts'
 
 export const inject = ['slots', 'configForms', 'remote', 'remote.credentials']
@@ -39,7 +38,7 @@ export function apply(ctx: Context): void {
     inject: () => ({
       form: ctx.configForms.get<{ workers: Record<string, WorkerConfig> }>('dv-hardware'),
       routing: ctx.configForms.get<{ useHardware: boolean }>('dv-fastvideo'), check,
-      models: { workers: check, catalog,
+      models: { catalog,
         action: async (worker: string, action: 'load' | 'unload', model: string, task: string) => {
           await json(`/api/dv/hardware/models?worker=${encodeURIComponent(worker)}`, { method: 'POST',
             headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, model, task }) })

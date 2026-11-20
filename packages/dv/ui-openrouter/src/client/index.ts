@@ -20,6 +20,14 @@ export function apply(ctx: Context): void {
       if (!await form.mutate([{ op: 'set', path: ['providers', 'openrouter'], value: { ...profile, apiKeyEnv: ref } }],
         state.revision)) throw new Error('Operator settings changed. Try again.')
     },
+    disableOperator: async () => {
+      const form = ctx.configForms.get<{ providers: Record<string, Record<string, unknown>> }>('llm-pi-ai')
+      const state = form.getSnapshot()
+      if (state.status !== 'ready' || !state.writable) throw new Error('Operator settings are unavailable.')
+      if (!await form.mutate([{ op: 'unset', path: ['providers', 'openrouter', 'apiKeyEnv'] }], state.revision)) {
+        throw new Error('Operator settings changed. Try again.')
+      }
+    },
     operatorEnabled: () => {
       const state = ctx.configForms.get<{ providers: Record<string, { apiKeyEnv?: unknown }> }>('llm-pi-ai').getSnapshot()
       const profile = state.status === 'ready' ? state.value?.providers['openrouter'] : undefined

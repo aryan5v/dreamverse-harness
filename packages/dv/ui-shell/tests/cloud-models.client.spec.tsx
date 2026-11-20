@@ -86,10 +86,12 @@ it('keeps the chat option checked for a provider whose key the operator profile 
   const previous = document.documentElement.lang
   document.documentElement.lang = 'en'
   const providers = createRegistry<CloudModelSettings>(p => [p.id], p => p.name)
+  const disableOperator = vi.fn(async () => {})
   const openrouter = {
     ...provider('openrouter', 'OpenRouter', [{ id: 'flux', name: 'FLUX 3', media: 'image' }], true,
       { status: 'connected', balanceUsd: 4 }),
     enableOperator: vi.fn(async () => {}),
+    disableOperator,
     operatorEnabled: () => true,
   }
   providers.register(openrouter)
@@ -99,6 +101,10 @@ it('keeps the chat option checked for a provider whose key the operator profile 
     fireEvent.click(await screen.findByRole('button', { name: 'Manage OpenRouter' }))
     const option = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Also use for chat LLMs' })
     expect(option.checked).toBe(true)
+    fireEvent.click(option)
+    await waitFor(() => { expect(option.checked).toBe(false) })
+    expect(disableOperator).toHaveBeenCalledOnce()
+    expect(await screen.findByText('This provider no longer serves chat LLMs.')).toBeTruthy()
   } finally {
     connections.dispose()
     document.documentElement.lang = previous
