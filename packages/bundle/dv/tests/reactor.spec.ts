@@ -108,6 +108,38 @@ const textRequest: RenderRequest = {
   durationSec: 8, aspectRatio: '16:9', resolution: '768p', seed: 1, extra: {},
 }
 
+it('extracts the last video frame when the recording audio runs longer', async () => {
+  const { ctx, recording } = await boot()
+  execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=s=64x64:r=24:d=1',
+    '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono:d=3', '-c:v', 'libx264', '-c:a', 'aac', '-f', 'mp4', recording])
+  const entry = ctx.dvModels.resolve(['t2v'], { ...model, task: 't2v' })
+  const events = await Array.fromAsync(entry.render(textRequest))
+  expect(events).toEqual([
+    { kind: 'last_frame', png: expect.any(Buffer) },
+    { kind: 'video_start', mime: 'video/mp4' },
+    { kind: 'chunk', bytes: expect.any(Buffer) },
+    { kind: 'done', durationSec: 1, timings: expect.any(Object) },
+  ])
+})
+
+it.each([
+  { alias: 'helios', aspectRatio: '5:3', resolution: '768p', mode: 'helios-per-chunk', counts: [0, 33, 66, 99, 132] },
+  { alias: 'helios', aspectRatio: '5:3', resolution: '768p', mode: 'helios-cumulative', counts: [0, 33, 66, 99, 132] },
+  { alias: 'longlive-v2', aspectRatio: '20:11', resolution: '704p', mode: 'chunks', counts: [33, 66, 99, 132] },
+  { alias: 'visko-orbis-stable', aspectRatio: '16:9', resolution: '1080p', mode: 'chunks', counts: [0, 44, 44, 44] },
+  { alias: 'visko-orbis-dynamic', aspectRatio: '16:9', resolution: '1080p', mode: 'chunks', counts: [0, 44, 44, 44] },
+])('waits for enough video from $alias before requesting a recording ($mode)', async (row) => {
+  const { alias, aspectRatio, resolution, counts, mode } = row
+  const { ctx, recording, readTrace } = await boot()
+  vi.stubEnv('DV_REACTOR_MODE', mode)
+  execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=s=64x64:r=24:d=5', '-c:v', 'libx264', recording])
+  const entry = ctx.dvModels.resolve(['t2v'], { ...model, model: alias, task: 't2v' })
+  await Array.fromAsync(entry.render({ ...textRequest, durationSec: 5, aspectRatio, resolution }))
+  const field = alias === 'helios' ? 'current_frame' : 'frames_emitted'
+  const trace = readTrace().filter(entry => entry['event'] === 'read_progress' || entry['event'] === 'capture')
+  expect(trace).toEqual([...counts.map(frames => ({ event: 'read_progress', field, frames })), { event: 'capture', seconds: 5 }])
+})
+
 it('closes the session after a build failure or cancellation', async () => {
   const { ctx, trace, readTrace } = await boot()
   const entry = ctx.dvModels.resolve(['t2v'], { ...model, task: 't2v' })
@@ -125,6 +157,46 @@ it('closes the session after a build failure or cancellation', async () => {
     await expect(result).rejects.toBe(reason)
   }
   expect(readTrace().slice(-2)).toEqual([{ event: 'disconnect' }, { event: 'close' }])
+})
+
+it('waits for local media processing and scratch cleanup when Reactor unloads', async () => {
+  const { ctx, recording } = await boot()
+  execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=s=64x64:r=24:d=8', '-c:v', 'libx264', recording])
+  const fiber = [...ctx.loader.entries()].find(entry => entry.options.id === 'dv-reactor')?.fiber
+  if (fiber === undefined) throw new Error('Missing Reactor plugin fiber')
+  const entry = ctx.dvModels.resolve(['t2v'], { ...model, task: 't2v' })
+  const started = Promise.withResolvers<string>()
+  const release = Promise.withResolvers<undefined>()
+  const run = ctx.dvFfmpeg.run.bind(ctx.dvFfmpeg)
+  const remux = vi.spyOn(ctx.dvFfmpeg, 'run').mockImplementation(async (request) => {
+    started.resolve(request.dir)
+    await release.promise
+    return await run(request)
+  })
+  const outcome = entry.render(textRequest)[Symbol.asyncIterator]().next().then(() => null, (error: unknown) => error)
+  let unload: Promise<void> | undefined
+  try {
+    const scratch = await Promise.race([
+      started.promise,
+      outcome.then((error) => { throw new Error('Render settled before remux', { cause: error }) }),
+    ])
+    expect(existsSync(scratch)).toBe(true)
+    unload = Promise.resolve(fiber.dispose())
+    const first = await Promise.race([
+      unload.then(() => 'unloaded'),
+      new Promise((resolve) => { setImmediate(resolve, 'waiting') }),
+    ])
+    expect(first).toBe('waiting')
+    release.resolve(undefined)
+    await unload
+    expect(existsSync(scratch)).toBe(false)
+    expect(await outcome).toMatchObject({ message: 'The Reactor provider was unloaded.' })
+  } finally {
+    release.resolve(undefined)
+    await outcome
+    await unload
+    remux.mockRestore()
+  }
 })
 
 it('uses the model workflow for a scripted take, a continuous stream, and a saved clip', async () => {

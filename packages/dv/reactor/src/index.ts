@@ -16,7 +16,10 @@ import { capture, type Upload } from './client.ts'
 import type { ReactorModelConfig } from './types.ts'
 import { profileFor, profiles, type ProfileName } from './profiles.ts'
 
-type ModelConfig = ReactorModelConfig<ProfileName>
+type ModelConfig = ReactorModelConfig & {
+  /** Bundled Reactor command schema for this alias. */
+  profile: ProfileName
+}
 
 const profileNames = Object.keys(profiles) as ProfileName[]
 const defaultModels = Object.fromEntries(profileNames.map(profile => [profile, { profile }]))
@@ -119,11 +122,11 @@ export function apply(ctx: Context, config: Config): void {
     },
   }), 'Reactor model discovery'))
   const lifetime = new AbortController()
-  const active = new Set<ReturnType<typeof capture>>()
+  const active = new Set<Promise<unknown>>()
   ctx.effect(() => async () => {
     lifetime.abort(new Error('The Reactor provider was unloaded.'))
     await Promise.allSettled(active)
-  }, 'Reactor SDK sessions')
+  }, 'Reactor renders')
 
   const mimeOf = (asset: AssetId): string => ctx.dvAssetPool.get(asset).mime.split(';')[0]?.trim().toLowerCase() ?? ''
   const toUpload = (asset: AssetId): Upload => ({
@@ -205,6 +208,74 @@ export function apply(ctx: Context, config: Config): void {
         return problems
       }
 
+      const prepareRecording = async (request: RenderRequest, signal: AbortSignal) => {
+        signal.throwIfAborted()
+        const { durationSec, aspectRatio, resolution } = request
+        const problems = problemsOf(request)
+        if (problems.length > 0 || durationSec === undefined || aspectRatio === undefined || resolution === undefined) {
+          throw new Error(problems.join(' '))
+        }
+        const credential = await ctx.credentials.resolve(keyRef)
+        if (credential === undefined) throw new Error(`Set the Reactor credential ${keyRef} on the DreamVerse host.`)
+        const assets: Record<Media, AssetId[]> = { image: [], audio: [], video: [] }
+        for (const asset of request.references) {
+          const kind = mediaOf(mimeOf(asset))
+          if (kind !== undefined) assets[kind].push(asset)
+        }
+        let audioOffset = 0
+        for (const video of assets.video) {
+          if (await ctx.dvAssetPool.hasAudio(video)) audioOffset++
+        }
+        const prompt = replacePromptCitations(request.prompt, (citation) => {
+          const asset = citedAsset(citation.uri)
+          if (asset === null) {
+            if (profile.labels === 'frame-pictures') {
+              const role = citedInput(citation.uri)
+              if (role === 'first_frame') return '<Picture 1>'
+              if (role === 'last_frame') return request.firstFrame === null ? '<Picture 1>' : '<Picture 2>'
+            }
+            return citation.label
+          }
+          for (const kind of MEDIA) {
+            const index = assets[kind].indexOf(asset)
+            if (index < 0) continue
+            const label = `${MEDIA_LABEL[kind]} ${index + 1 + (kind === 'audio' ? audioOffset : 0)}`
+            if (workflow.kind === 'queue' && workflow.world === true) return citation.label
+            return profile.labels === 'plain' ? label : `<${label}>`
+          }
+          return citation.label
+        })
+        signal.throwIfAborted()
+        const scene = request.extra['scene']
+        const dir = await mkdtemp(join(tmpdir(), 'dv-reactor-'))
+        try {
+          const { recording, timings } = await capture(config.pythonPath, dir, credential.value, config.timeoutSeconds, {
+            model: facts.modelId, workflow, aspect: aspectRatio, resolution, seconds: durationSec, prompt,
+            ...profile.seed === false ? {} : { seed: request.seed },
+            ...typeof scene === 'string' ? { scene } : {},
+            images: assets.image.map(toUpload), audio: assets.audio.map(toUpload), videos: assets.video.map(toUpload),
+            ...request.firstFrame === null ? {} : { firstFrame: toUpload(request.firstFrame) },
+            ...request.lastFrame === null ? {} : { lastFrame: toUpload(request.lastFrame) },
+          }, signal)
+          signal.throwIfAborted()
+          await ctx.dvFfmpeg.run({
+            argv: ['ffmpeg', '-y', '-loglevel', 'error', '-i', '{{in:0}}', '-map', '0:v:0', '-map', '0:a:0?', '-c', 'copy',
+              '-movflags', '+faststart', '{{out:video.mp4}}'],
+            dir, inputs: [recording], outputs: ['video.mp4'],
+          })
+          signal.throwIfAborted()
+          const output = join(dir, 'video.mp4')
+          const { videoDurationSec, durationSec: containerDuration } = await ctx.dvFfmpeg.probe(output)
+          const deliveredSeconds = videoDurationSec ?? containerDuration
+          if (deliveredSeconds === null || deliveredSeconds <= 0) throw new Error('Reactor returned an empty recording.')
+          const bytes = await readFile(output, { signal })
+          const png = await ctx.dvFfmpeg.lastFrame(bytes, videoDurationSec)
+          return { png, bytes, timings, durationSec: deliveredSeconds }
+        } finally {
+          await rm(dir, { recursive: true, force: true })
+        }
+      }
+
       return {
         modality: 'video', provider: 'reactor', hosting: 'managed', model: alias, task, displayName: profile.name,
         description: `${profile.name} on Reactor. Reactor bills for the session lifetime.`
@@ -226,75 +297,14 @@ export function apply(ctx: Context, config: Config): void {
         async *render(request, callerSignal): AsyncGenerator<RenderStreamEvent> {
           const signal = callerSignal === undefined ? lifetime.signal : AbortSignal.any([callerSignal, lifetime.signal])
           signal.throwIfAborted()
-          const { durationSec, aspectRatio, resolution } = request
-          const problems = problemsOf(request)
-          if (problems.length > 0 || durationSec === undefined || aspectRatio === undefined || resolution === undefined) {
-            throw new Error(problems.join(' '))
-          }
-          const credential = await ctx.credentials.resolve(keyRef)
-          if (credential === undefined) throw new Error(`Set the Reactor credential ${keyRef} on the DreamVerse host.`)
-          const assets: Record<Media, AssetId[]> = { image: [], audio: [], video: [] }
-          for (const asset of request.references) {
-            const kind = mediaOf(mimeOf(asset))
-            if (kind !== undefined) assets[kind].push(asset)
-          }
-          let audioOffset = 0
-          for (const video of assets.video) {
-            if (await ctx.dvAssetPool.hasAudio(video)) audioOffset++
-          }
-          const prompt = replacePromptCitations(request.prompt, (citation) => {
-            const asset = citedAsset(citation.uri)
-            if (asset === null) {
-              if (profile.labels === 'frame-pictures') {
-                const role = citedInput(citation.uri)
-                if (role === 'first_frame') return '<Picture 1>'
-                if (role === 'last_frame') return request.firstFrame === null ? '<Picture 1>' : '<Picture 2>'
-              }
-              return citation.label
-            }
-            for (const kind of MEDIA) {
-              const index = assets[kind].indexOf(asset)
-              if (index < 0) continue
-              const label = `${MEDIA_LABEL[kind]} ${index + 1 + (kind === 'audio' ? audioOffset : 0)}`
-              if (workflow.kind === 'queue' && workflow.world === true) return citation.label
-              return profile.labels === 'plain' ? label : `<${label}>`
-            }
-            return citation.label
-          })
-          const scene = request.extra['scene']
-          const dir = await mkdtemp(join(tmpdir(), 'dv-reactor-'))
-          try {
-            const session = capture(config.pythonPath, dir, credential.value, config.timeoutSeconds, {
-              model: facts.modelId, workflow, aspect: aspectRatio, resolution, seconds: durationSec, prompt,
-              ...profile.seed === false ? {} : { seed: request.seed },
-              ...typeof scene === 'string' ? { scene } : {},
-              images: assets.image.map(toUpload), audio: assets.audio.map(toUpload), videos: assets.video.map(toUpload),
-              ...request.firstFrame === null ? {} : { firstFrame: toUpload(request.firstFrame) },
-              ...request.lastFrame === null ? {} : { lastFrame: toUpload(request.lastFrame) },
-            }, signal)
-            active.add(session)
-            const { recording, timings } = await session.finally(() => { active.delete(session) })
-            signal.throwIfAborted()
-            await ctx.dvFfmpeg.run({
-              argv: ['ffmpeg', '-y', '-loglevel', 'error', '-i', '{{in:0}}', '-map', '0:v:0', '-map', '0:a:0?', '-c', 'copy',
-                '-movflags', '+faststart', '{{out:video.mp4}}'],
-              dir, inputs: [recording], outputs: ['video.mp4'],
-            })
-            signal.throwIfAborted()
-            const output = join(dir, 'video.mp4')
-            const { videoDurationSec, durationSec: containerDuration } = await ctx.dvFfmpeg.probe(output)
-            const deliveredSeconds = videoDurationSec ?? containerDuration
-            if (deliveredSeconds === null || deliveredSeconds <= 0) throw new Error('Reactor returned an empty recording.')
-            const bytes = await readFile(output, { signal })
-            const png = await ctx.dvFfmpeg.lastFrame(bytes)
-            signal.throwIfAborted()
-            yield { kind: 'last_frame', png }
-            yield { kind: 'video_start', mime: 'video/mp4' }
-            yield { kind: 'chunk', bytes }
-            yield { kind: 'done', timings, durationSec: deliveredSeconds }
-          } finally {
-            await rm(dir, { recursive: true, force: true })
-          }
+          const processing = Promise.resolve().then(() => prepareRecording(request, signal))
+          active.add(processing)
+          const { png, bytes, timings, durationSec } = await processing.finally(() => { active.delete(processing) })
+          signal.throwIfAborted()
+          yield { kind: 'last_frame', png }
+          yield { kind: 'video_start', mime: 'video/mp4' }
+          yield { kind: 'chunk', bytes }
+          yield { kind: 'done', timings, durationSec }
         },
       }
     })
