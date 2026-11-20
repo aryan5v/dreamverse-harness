@@ -30,6 +30,8 @@ The DreamVerse bundle mounts `dv-openrouter` with no configured models. Use Vide
 Only configured models appear in the pickers. T2V is available for compatible catalog entries; REF2V is registered when the models catalog lists image input for the model, and I2V and FL2V when the video catalog advertises their endpoint images. Each image model is registered for T2I, so `image.generate` (`dv_image_generate`) can use it, and each speech model for T2A, so `audio.generate` (`dv_audio_generate`) can use it. API models require no local weight download or GPU load.
 
 
+`GET /api/dv/openrouter/account` checks the host's configured key without generating media. It returns `missing`, `rejected`, `unavailable`, or `connected` in `status`. A connected response includes the key's `label` when available and `balanceUsd`. The balance comes from OpenRouter's account credits and is null when the key cannot read them.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
