@@ -1,7 +1,7 @@
 [
   {
     "name": "dv_models_list",
-    "description": "List the models you can generate with, each with its key (modality, task, provider, model), its description and its hosting, worker selection, and prompt skill when available.",
+    "description": "List the models you can generate with, each with its key (modality, task, provider, model), its description, its hosting, and its display name, worker selection and prompt skill when available.",
     "parameters": {
       "type": "object",
       "properties": {
