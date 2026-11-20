@@ -24,8 +24,13 @@ export function apply(ctx: Context): void {
       const form = ctx.configForms.get<{ providers: Record<string, Record<string, unknown>> }>('llm-pi-ai')
       const state = form.getSnapshot()
       if (state.status !== 'ready' || !state.writable) throw new Error('Operator settings are unavailable.')
-      // The whole profile is the chat route this page created; the generation key lives in the dv-openrouter section.
-      if (!await form.mutate([{ op: 'unset', path: ['providers', 'openrouter'] }], state.revision)) {
+      // Only the reference this page writes turns the chat route off: any other field in the profile belongs to a
+      // configuration the person made elsewhere, so it survives. A profile left with nothing else goes entirely.
+      const profile = state.value?.providers['openrouter'] ?? {}
+      const path = Object.keys(profile).some(key => key !== 'apiKeyEnv')
+        ? ['providers', 'openrouter', 'apiKeyEnv']
+        : ['providers', 'openrouter']
+      if (!await form.mutate([{ op: 'unset', path }], state.revision)) {
         throw new Error('Operator settings changed. Try again.')
       }
     },

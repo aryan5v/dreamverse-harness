@@ -120,8 +120,13 @@ export function apply(ctx: ClientContext): void {
             const refs = [...new Set([...profiles.values()].filter((ref): ref is string => ref !== undefined))]
             const described = refs.length === 0 ? undefined : await scope.remote.credentials.describe(refs)
             if (described !== undefined && !described.ok) return catalog.routableProviders
+            // A provider contribution can also say its saved key does not serve chat, as OpenRouter does while its
+            // chat option is off: such a route stays out even though its profile still names the key reference.
+            const offChat = new Set((scope.get('dvCloudModels')?.getSnapshot() ?? [])
+              .filter(entry => entry.operatorEnabled !== undefined && !entry.operatorEnabled())
+              .map(entry => entry.id))
             return routableRoutes(catalog.routableProviders, managed, profiles, described?.value ?? {},
-              catalog.default.provider)
+              catalog.default.provider).filter(id => id === catalog.default.provider || !offChat.has(id))
           },
           logoOf: provider => scope.get('dvCloudModels')?.getSnapshot().find(entry => entry.id === provider)?.logo,
         }
