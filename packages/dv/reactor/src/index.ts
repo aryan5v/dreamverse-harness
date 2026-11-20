@@ -159,7 +159,9 @@ export function apply(ctx: Context, config: Config): void {
     provider: 'reactor', description: 'Reactor account status', timeoutSeconds: config.catalogTimeoutSeconds,
     savedKey: async () => (await ctx.credentials.resolve(keyRef))?.value,
     check: async (key, signal) => {
-      await checkSdk(config.pythonPath, signal, config.catalogTimeoutSeconds)
+      if (configured().some(entry => entry.profile.workflow.kind !== 'generation')) {
+        await checkSdk(config.pythonPath, signal, config.catalogTimeoutSeconds)
+      }
       await checkAccess(key, signal, apiBaseUrl)
       return { ...await readBalance(key, signal, apiBaseUrl), limitRemainingUsd: null }
     },
