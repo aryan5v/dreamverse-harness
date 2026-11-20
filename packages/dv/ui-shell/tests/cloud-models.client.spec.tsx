@@ -97,7 +97,7 @@ it('keeps the chat option checked for a provider whose key the operator profile 
   try {
     render(<Connections providers={providers} connections={connections} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Manage OpenRouter' }))
-    const option = screen.getByRole('checkbox', { name: 'Also use for chat LLMs' })
+    const option = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Also use for chat LLMs' })
     expect(option.checked).toBe(true)
   } finally {
     connections.dispose()
