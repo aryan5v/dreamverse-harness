@@ -51,6 +51,7 @@ Look up a configured alias through `dv_models_list` with provider `reactor`. Use
 | `pythonPath` | `python3` | Host interpreter that can import the Reactor SDK. |
 | `credentialRef` | `REACTOR_API_KEY` | Name that the harness credential store resolves for each render. |
 | `timeoutSeconds` | `360` | Maximum lifetime of one Reactor session, in seconds. It covers connection, upload, generation, real-time playback or streaming, capture, and download. Integer from 1 to 3600. |
+| `apiBaseUrl` | `https://api.reactor.inc` | HTTPS origin of the Reactor API, without a path, query, or credentials. It serves the model catalog, the PixVerse saved-step downloads, and the SDK session through its `api_url` argument. Loading fails for any other value. |
 | `catalogTimeoutSeconds` | `30` | Deadline for one `GET /api/dv/reactor/catalog` request to Reactor, in seconds. Integer from 1 to 300. |
 | `models` | Empty in the DreamVerse bundle | Model aliases for the generation tools. Each has a `profile` and optional `modelId` and `durationsSec` overrides. |
 

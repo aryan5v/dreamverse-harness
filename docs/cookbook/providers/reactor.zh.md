@@ -8,7 +8,7 @@
 
 1. 将已部署模型的 schema 与现有配置对照。对于兼容的私有部署，配置原生模型 ID 并复用已有配置。对于新工作流，请在 [profiles.ts](../../../packages/dv/reactor/src/profiles.ts) 中补充支持的任务、时长、输出尺寸和输入限制。[Reactor 模型 API 参考](https://docs.reactor.inc/model-api-reference/overview)
 2. 将 Reactor 专用的命令、事件和录制行为放在 [SDK 桥接程序](../../../packages/dv/reactor/src/render.py) 中。队列和流式工作流在会话中录制片段。PixVerse 下载已保存的步骤产物。验证 SDK 版本变更后，请更新[主机配置](../../../packages/dv/reactor/README.zh.md#use-this-package)中的版本。[Reactor Python SDK](https://docs.reactor.inc/sdk-reference/python/reactor) · [Reactor 录制](https://docs.reactor.inc/concepts/recordings)
-3. 通过主机凭据服务解析 `REACTOR_API_KEY`。目录查询需要密钥，不会开启生成会话，并使用 `catalogTimeoutSeconds` 时限。每次生成使用一个受 `timeoutSeconds` 限制的会话，每个已注册的时长都必须短于 `timeoutSeconds`。取消时请求 SDK 断开连接。清理期间丢失连接时，由服务端会话时限限制其运行时间。
+3. 通过主机凭据服务解析 `REACTOR_API_KEY`。目录查询需要密钥，不会开启生成会话，并使用 `catalogTimeoutSeconds` 时限。`apiBaseUrl` 为目录、保存步骤下载和 SDK 会话选择 Reactor API 源。每次生成使用一个受 `timeoutSeconds` 限制的会话，每个已注册的时长都必须短于 `timeoutSeconds`。取消时请求 SDK 断开连接。清理期间丢失连接时，由服务端会话时限限制其运行时间。
 
 ## 验证并提交
 

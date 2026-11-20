@@ -18,7 +18,7 @@ class ClipError(Exception):
 
 async def download_saved_clip(session_id, request):
     """PixVerse saves the MP4 as step 1 because each DreamVerse shot queues one clip."""
-    endpoint = Request(f"https://api.reactor.inc/sessions/{quote(session_id, safe='')}/steps/1")
+    endpoint = Request(f"{request['apiBaseUrl']}/sessions/{quote(session_id, safe='')}/steps/1")
     endpoint.add_unredirected_header("Authorization", f"Bearer {request['apiKey']}")
 
     def files():
@@ -52,6 +52,7 @@ async def render(request, phase):
     reactor = Reactor(
         model_name=request["model"],
         api_key=request["apiKey"],
+        api_url=request["apiBaseUrl"],
         max_session_duration_seconds=request["timeoutSeconds"],
     )
     messages = asyncio.Queue()

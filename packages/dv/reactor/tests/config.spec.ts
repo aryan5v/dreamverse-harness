@@ -14,6 +14,16 @@ describe('Reactor configuration', () => {
     expect(Reactor.Config({})).toMatchObject({ pythonPath: 'python3', timeoutSeconds: 360, catalogTimeoutSeconds: 30 })
   })
 
+  it('defaults the API origin to the Reactor service', () => {
+    expect(Reactor.Config({}).apiBaseUrl).toBe('https://api.reactor.inc')
+  })
+
+  it.each(['not a url', 'http://api.reactor.inc', 'https://api.reactor.inc/v1', 'https://api.reactor.inc/?a=1',
+    'https://api.reactor.inc/#x', 'https://user@api.reactor.inc', 'https://user:pw@api.reactor.inc'])(
+    'refuses to load with the API base URL %s', (apiBaseUrl) => {
+      expect(() => { load({ apiBaseUrl }) }).toThrow('Configure apiBaseUrl as an HTTPS origin')
+    })
+
   it.each([0, 301, 1.5])('rejects a catalog deadline of %s seconds', (seconds) => {
     expect(() => Reactor.Config({ catalogTimeoutSeconds: seconds })).toThrow()
   })

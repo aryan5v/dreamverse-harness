@@ -237,3 +237,18 @@ describe('Reactor input slots', () => {
     expect(ctx.dvModels.list({ provider: 'reactor' }).map(formatModelKey)).toContain('video/ref2v/reactor/pika-h3-flex')
   })
 })
+
+describe('Reactor API origin', () => {
+  it.each([
+    ['https://api.reactor.inc', 'https://api.reactor.inc'],
+    ['https://reactor.example.test/', 'https://reactor.example.test'],
+  ])('gives the SDK session and the saved-step download the origin %s', async (apiBaseUrl, origin) => {
+    const app = await setup({ apiBaseUrl })
+    execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=s=64x64:r=24:d=8', '-c:v', 'libx264', app.recording])
+    const entry = app.entry('pixverse-r2-director', 't2v')
+    await Array.fromAsync(entry.render({ ...request, resolution: '720p' }))
+    const trace = app.readTrace()
+    expect(trace.find(row => row['event'] === 'init')).toMatchObject({ api_url: origin })
+    expect(trace.some(row => row['event'] === 'get_saved_step')).toBe(true)
+  })
+})

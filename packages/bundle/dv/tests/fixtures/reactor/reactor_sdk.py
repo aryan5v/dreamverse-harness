@@ -22,12 +22,13 @@ class Progress(dict):
 
 
 class Reactor:
-    def __init__(self, *, model_name, api_key, max_session_duration_seconds):
+    def __init__(self, *, model_name, api_key, api_url, max_session_duration_seconds):
         assert api_key == "rk_fixture"
         assert "REACTOR_API_KEY" not in os.environ
-        log("init", model=model_name, lifetime=max_session_duration_seconds)
+        log("init", model=model_name, lifetime=max_session_duration_seconds, api_url=api_url)
         self.clip = {"clip_id": "fixture", "seconds": 5.875}
         self.model = model_name
+        self.api_url = api_url
         self.seconds = None
         self.session_id = "fixture-session"
         if self.model == "reactor/pixverse-r2-director":
@@ -40,7 +41,7 @@ class Reactor:
             log("download_saved_output")
             data = Path(os.environ["DV_REACTOR_RECORDING"]).read_bytes()
         else:
-            assert request.full_url == "https://api.reactor.inc/sessions/fixture-session/steps/1"
+            assert request.full_url == f"{self.api_url}/sessions/fixture-session/steps/1"
             assert request.get_header("Authorization") == "Bearer rk_fixture"
             log("get_saved_step")
             data = json.dumps({"files": [{

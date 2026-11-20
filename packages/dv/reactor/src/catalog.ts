@@ -6,7 +6,6 @@ interface Model {
   description?: string
 }
 
-const CATALOG_URL = 'https://api.reactor.inc/models'
 const PAGE_SIZE = 200
 
 /** The Reactor catalog rejected an authenticated request. */
@@ -21,12 +20,13 @@ export class ReactorCatalogError extends Error {
  * List the models visible to an API key, including models without a DreamVerse shot workflow.
  * @param apiKey - the host's Reactor API key.
  * @param signal - stops upstream requests when the caller closes the connection.
+ * @param apiBaseUrl - the Reactor API origin, without a trailing slash.
  * @returns model IDs and status from the Reactor Platform API.
  */
-export async function listModels(apiKey: string, signal: AbortSignal): Promise<Model[]> {
+export async function listModels(apiKey: string, signal: AbortSignal, apiBaseUrl: string): Promise<Model[]> {
   const models: Model[] = []
   for (let offset = 0; ; offset += PAGE_SIZE) {
-    const url = new URL(CATALOG_URL)
+    const url = new URL('/models', apiBaseUrl)
     url.searchParams.set('limit', String(PAGE_SIZE))
     url.searchParams.set('offset', String(offset))
     const response = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` }, signal, redirect: 'error' })

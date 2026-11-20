@@ -13,6 +13,7 @@ export interface Upload {
 }
 
 interface ClipRequest {
+  apiBaseUrl: string
   model: string
   workflow: Workflow
   aspect: string

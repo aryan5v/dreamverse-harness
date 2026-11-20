@@ -6,7 +6,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { capture } from '../src/client.ts'
 
 const cleanup: string[] = []
-const request: Parameters<typeof capture>[4] = { model: 'reactor/fast-h3', workflow: { kind: 'take' }, aspect: '16:9', resolution: '768p', seconds: 8,
+const request: Parameters<typeof capture>[4] = { apiBaseUrl: 'https://api.reactor.inc', model: 'reactor/fast-h3', workflow: { kind: 'take' }, aspect: '16:9', resolution: '768p', seconds: 8,
   prompt: 'A lake', images: [], audio: [], videos: [] }
 
 afterEach(() => {
@@ -43,7 +43,7 @@ it('sends the key and the request on stdin only', async () => {
   const { python, dir } = interpreter('read line\necho "DV_REACTOR_ERROR $line"\nexit 1')
   const failure = await capture(python, dir, 'rk_secret', 30, request, new AbortController().signal).catch((error: unknown) => error)
   expect(failure).toBeInstanceOf(Error)
-  expect(JSON.parse((failure as Error).message)).toMatchObject({ apiKey: 'rk_secret', timeoutSeconds: 30, output: 'recording.ts', prompt: 'A lake' })
+  expect(JSON.parse((failure as Error).message)).toMatchObject({ apiBaseUrl: 'https://api.reactor.inc', apiKey: 'rk_secret', timeoutSeconds: 30, output: 'recording.ts', prompt: 'A lake' })
 })
 
 it('reports the bridge error line, or a generic message when the bridge fails without one', async () => {

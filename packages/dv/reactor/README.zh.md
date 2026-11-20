@@ -51,6 +51,7 @@ python3 -m pip install 'reactor-sdk==1.15.0'
 | `pythonPath` | `python3` | 能导入 Reactor SDK 的主机 Python 解释器。 |
 | `credentialRef` | `REACTOR_API_KEY` | harness 凭据存储在每次渲染时解析的名称。 |
 | `timeoutSeconds` | `360` | 单个 Reactor 会话的最长时长，单位为秒。涵盖连接、上传、生成、实时回放或流式输出、录制和下载。取 1 到 3600 的整数。 |
+| `apiBaseUrl` | `https://api.reactor.inc` | Reactor API 的 HTTPS 源，不含路径、查询或凭据。它用于模型目录、PixVerse 保存步骤的下载，以及通过 `api_url` 参数创建的 SDK 会话。其他取值会导致加载失败。 |
 | `catalogTimeoutSeconds` | `30` | 单次 `GET /api/dv/reactor/catalog` 请求 Reactor 的时限，单位为秒。取 1 到 300 的整数。 |
 | `models` | DreamVerse bundle 默认为空 | 可用于生成工具的模型别名。每项包含 `profile`，并可覆盖 `modelId` 和 `durationsSec`。 |
 

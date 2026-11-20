@@ -24,6 +24,13 @@ describe('Reactor catalog route', () => {
     expect(fetch.mock.calls[0]?.[1]).toMatchObject({ headers: { Authorization: 'Bearer rk_fixture' } })
   })
 
+  it('requests the catalog from the configured API origin', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json([]))
+    vi.stubGlobal('fetch', fetch)
+    await (await catalogRoute({ apiBaseUrl: 'https://reactor.example.test' }))()
+    expect((fetch.mock.calls[0]?.[0] as URL).href).toBe('https://reactor.example.test/models?limit=200&offset=0')
+  })
+
   it('answers 503 without a Reactor key and does not call Reactor', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>()
     vi.stubGlobal('fetch', fetch)

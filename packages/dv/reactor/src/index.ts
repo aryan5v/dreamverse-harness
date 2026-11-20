@@ -38,6 +38,11 @@ export interface Config {
    * streaming, capture and download. Registered durations are shorter than this value.
    */
   timeoutSeconds: number
+  /**
+   * HTTPS origin of the Reactor API. It serves the model catalog, the PixVerse saved-step downloads, and the SDK
+   * session (`api_url`).
+   */
+  apiBaseUrl: string
   /** Deadline for one model catalog request, in seconds. */
   catalogTimeoutSeconds: number
   /** Keys are DreamVerse aliases. Each names a published Reactor command schema. */
@@ -49,6 +54,7 @@ export const Config = z.object({
   pythonPath: z.string().min(1).default('python3'),
   credentialRef: z.string().default('REACTOR_API_KEY'),
   timeoutSeconds: z.natural().min(1).max(3600).default(360),
+  apiBaseUrl: z.string().default('https://api.reactor.inc'),
   catalogTimeoutSeconds: z.natural().min(1).max(300).default(30),
   models: z.dict(z.object({
     profile: z.union(profileNames).required(),
@@ -95,6 +101,14 @@ function modelFacts(alias: string, config: ModelConfig, timeoutSeconds: number):
   }
 }
 
+function apiOrigin(value: string): string {
+  const url = URL.canParse(value) ? new URL(value) : undefined
+  if (url?.protocol !== 'https:' || url.pathname !== '/' || url.search !== '' || url.hash !== '' || url.username !== '' || url.password !== '') {
+    throw new Error('Configure apiBaseUrl as an HTTPS origin such as https://api.reactor.inc.')
+  }
+  return url.origin
+}
+
 /**
  * Register configured models. Model selection and request validation do not start a paid session.
  * @param ctx - the plugin context.
@@ -104,6 +118,7 @@ export function apply(ctx: Context, config: Config): void {
   if (config.pythonPath.trim() === '') throw new Error('Configure a Python interpreter for Reactor.')
   if (!isCredentialRefName(config.credentialRef)) throw new Error('Configure an environment variable name for the Reactor credential.')
   const keyRef = credentialRef(config.credentialRef)
+  const apiBaseUrl = apiOrigin(config.apiBaseUrl)
   const configured = () => Object.entries(config.models.get()).map(([alias, model]) => {
     if (!/^[a-z0-9][a-z0-9-]{0,119}$/.test(alias)) throw new Error('Reactor model aliases use lowercase letters, numbers and hyphens.')
     return { alias, profile: profileFor(model.profile), facts: modelFacts(alias, model, config.timeoutSeconds) }
@@ -115,7 +130,7 @@ export function apply(ctx: Context, config: Config): void {
       if (credential === undefined) return Response.json({ error: 'Set the Reactor API key on the host.' }, { status: 503 })
       const signal = AbortSignal.any([request.signal, AbortSignal.timeout(config.catalogTimeoutSeconds * 1000)])
       try {
-        const models = await listModels(credential.value, signal)
+        const models = await listModels(credential.value, signal, apiBaseUrl)
         const selected = configured()
         return Response.json({ models: models.map((model) => {
           const profile = catalogProfiles.get(model.name)
@@ -258,7 +273,7 @@ export function apply(ctx: Context, config: Config): void {
         const dir = await mkdtemp(join(tmpdir(), 'dv-reactor-'))
         try {
           const { recording, timings } = await capture(config.pythonPath, dir, credential.value, config.timeoutSeconds, {
-            model: facts.modelId, workflow, aspect: aspectRatio, resolution, seconds: durationSec, prompt,
+            apiBaseUrl, model: facts.modelId, workflow, aspect: aspectRatio, resolution, seconds: durationSec, prompt,
             ...profile.seed === false ? {} : { seed: request.seed },
             ...typeof scene === 'string' ? { scene } : {},
             images: assets.image.map(toUpload), audio: assets.audio.map(toUpload), videos: assets.video.map(toUpload),
