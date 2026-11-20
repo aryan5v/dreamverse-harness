@@ -127,7 +127,7 @@ describe('DreamVerse bundle composition', () => {
   it('boots the bundle rows through the Loader and turns a model tool call into a durable record', async () => {
     const rows = bundleRows()
     expect(rows.map(row => row.id)).toEqual(expect.arrayContaining([
-      'dv-openrouter', 'dv-models', 'dv-fastvideo', 'dv-uniserve', 'dv-project', 'dv-text-node', 'dv-shot-render', 'dv-timeline', 'dv-workflow-story', 'dv-chat-references', 'dv-api',
+      'dv-openrouter', 'dv-reactor', 'dv-models', 'dv-fastvideo', 'dv-uniserve', 'dv-project', 'dv-text-node', 'dv-shot-render', 'dv-timeline', 'dv-workflow-story', 'dv-chat-references', 'dv-api',
       'dv-sglang-diffusion', 'dv-image-generate', 'dv-sglang-omni', 'dv-audio-generate', 'dv-vllm-omni',
     ]))
     const { ctx, dir, services, dispose } = await bootBundle()
@@ -146,6 +146,7 @@ describe('DreamVerse bundle composition', () => {
     expect(ctx.get('tools')?.get('dv_image_generate')).toBeDefined()
     // The FastVideo row is disabled and keeps one server per task of fasth3, with valid model facts, for a deployment
     // that mounts it.
+    expect(rows.find(row => row.id === 'dv-reactor')?.config).toEqual({ models: {} })
     expect(fastVideo.mounted).toBe(false)
     const fastVideoRow = rows.find(row => row.id === 'dv-fastvideo')
     expect(fastVideoRow).toMatchObject({

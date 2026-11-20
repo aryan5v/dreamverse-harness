@@ -1,0 +1,113 @@
+---
+description: "使用 Reactor 托管的视频模型生成 DreamVerse 镜头。"
+kind: "package-reference"
+---
+
+# @dv/reactor
+
+[English](README.md) | 中文
+
+## 摘要
+
+使用 Reactor 生成 DreamVerse 镜头。选择支持文本、参考素材、关键帧或剧本数字人的模型。DreamVerse 保存视频片段和一张 PNG 尾帧。Reactor 按会话时长收费。
+
+## 目录
+
+- [使用此包](#use-this-package)
+- [了解实现](#understand-the-implementation)
+- [进一步阅读](#further-exploration)
+- [模型体验](#model-experience)
+- [已知限制和推迟的工作](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="use-this-package"></a>
+## 使用此包
+
+在 DreamVerse 主机的凭据存储或环境变量中设置 `REACTOR_API_KEY`。在 profile 的 `cordis.patch.yml` 中配置要启用的模型别名。DreamVerse 套件的默认模型列表为空。
+
+DreamVerse 主机需要在 Python 3.10 或更高版本的环境中安装 `reactor-sdk==1.15.0`。如果主机使用专用 Python 环境，请在 profile 的 `cordis.patch.yml` 中配置其解释器。
+
+```yaml
+- id: dv-reactor
+  config:
+    pythonPath: /path/to/venv/bin/python
+    models:
+      fast-h3:
+        profile: fast-h3
+```
+
+通过 `dv_models_list` 查找提供商 `reactor` 的已配置别名。用 `dv_models_get` 查看任务和支持的时长，再把提供商、模型别名和任务传给 `dv_shot_render`。套件包含 FastH3、FastH3-Omni、H3 Reference Turbo Realtime、Pika H3 Flex、PixVerse R2 Director、LTX、Helios、LongLive 2.0 和两个 Visko Orbis 模型的配置。
+
+| 字段 | 默认值 | 含义 |
+|---|---|---|
+| `pythonPath` | `python3` | 能导入 Reactor SDK 的主机 Python 解释器。 |
+| `credentialRef` | `REACTOR_API_KEY` | harness 凭据存储在每次渲染时解析的名称。 |
+| `timeoutSeconds` | `360` | 录制的时限和 Reactor 会话最长时长，单位为秒。 |
+| `models` | DreamVerse bundle 默认为空 | 可用于生成工具的模型别名。每项包含 `profile`，并可覆盖 `modelId` 和 `durationsSec`。 |
+
+如果账户只能访问部分模型，请在 `models` 中配置所需的配置子集。对于实现相同模型命令的私有部署，请将完整的 `owner/name` 填入 `modelId`，并选择对应的 `profile`。
+
+在 Web profile 中，`GET /api/dv/reactor/catalog` 列出配置的 API 密钥可见的所有模型。每项的 `shotModels` 列出该模型在 DreamVerse 中已配置的别名。
+
+-----
+
+<a id="understand-the-implementation"></a>
+## 了解实现
+
+<details>
+<summary>供应商实现</summary>
+
+[Cordis 插件](src/index.ts)注册[模型配置](src/profiles.ts)，在主机上读取 API 密钥，并将 DreamVerse 任务映射到模型输入。[SDK 桥接程序](src/render.py)使用 Reactor 官方 Python SDK 为每次渲染开启一个有时限的会话，上传素材、发出命令并录制片段。PixVerse 通过 Reactor 保存步骤的 API 直接提供 MP4。完成、取消或失败后，桥接程序关闭会话。Helios 在每个分块完成后通过 `state.current_frame` 报告累计帧数。桥接程序根据该帧数决定何时录制。
+
+Reactor 在共享模型目录中注册条目，并将媒体交给镜头渲染器。这两项结果都没有独立的运行时记录，因此此包不发布运行时不变量伴随模块。套件测试覆盖 Reactor 会话关闭和本地录制文件清理。
+
+</details>
+
+-----
+
+<a id="further-exploration"></a>
+## 进一步阅读
+
+- [贡献 DreamVerse 提供商](../../../docs/cookbook/providers/reactor.zh.md)
+- [Reactor 模型 API 参考](https://docs.reactor.inc/model-api-reference/overview)
+- [Reactor 录制](https://docs.reactor.inc/concepts/recordings)
+- [Reactor 维护指南](../../../docs/cookbook/providers/reactor.zh.md)
+- [DreamVerse 镜头渲染](../shot-render/README.zh.md)
+
+<a id="model-experience"></a>
+## 模型体验
+
+### 请求上下文和条件
+
+#### 模型看到什么
+
+智能体可用 `dv_models_list` 查询已启用的 Reactor 模型，并用 `dv_models_get` 读取其任务 schema。每个模型收到按其协议展开项目素材引用的镜头提示词。对于 LTX，镜头提示词是要朗读的剧本。
+
+#### Token 影响
+
+智能体查询目录时会收到 Reactor 模型的元数据。启用供应商不会添加新的提示词段落。
+
+#### KV Cache 影响
+
+目录结果追加到对话。供应商不会在固定请求前缀中加入文本。
+
+## 已知限制和推迟的工作
+
+<a id="known-limitations-and-deferred-work"></a>
+
+- 流式工作流要求部署启用 Reactor 录制。PixVerse 使用 Reactor 保存步骤的文件。
+- 需要互动控制、实时麦克风或摄像头输入以及机器人会话的模型会出现在目录发现结果中。这些模型需要各自的工作流才能生成 DreamVerse 镜头。
+- 通过主机 profile 启用内置的镜头模型配置，并将别名映射到实现相同工作流的私有部署。
+- 取消时，插件请求 SDK 断开连接。如果主机在清理期间失去连接，服务端的会话时限仍然有效。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护说明</summary>
+
+bundle 测试替换外部 SDK 并检查 MP4 和 PNG 导入。`packages/bundle/dv/tests/reactor-live.e2e.ts` 中的付费冒烟测试需要设置 `DV_REACTOR_LIVE_TEST=1`，并提供主机 API 密钥和安装了 SDK 的 Python 环境。
+
+</details>
