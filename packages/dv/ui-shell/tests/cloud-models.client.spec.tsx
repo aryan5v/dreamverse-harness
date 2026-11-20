@@ -81,3 +81,26 @@ it('shows saved keys with balances and pages one source-aware table of picker ch
     document.documentElement.lang = previous
   }
 })
+
+it('keeps the chat option checked for a provider whose key the operator profile already uses', async () => {
+  const previous = document.documentElement.lang
+  document.documentElement.lang = 'en'
+  const providers = createRegistry<CloudModelSettings>(p => [p.id], p => p.name)
+  const openrouter = {
+    ...provider('openrouter', 'OpenRouter', [{ id: 'flux', name: 'FLUX 3', media: 'image' }], true,
+      { status: 'connected', balanceUsd: 4 }),
+    enableOperator: vi.fn(async () => {}),
+    operatorEnabled: () => true,
+  }
+  providers.register(openrouter)
+  const connections = new CloudConnections()
+  try {
+    render(<Connections providers={providers} connections={connections} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage OpenRouter' }))
+    const option = screen.getByRole('checkbox', { name: 'Also use for chat LLMs' })
+    expect(option.checked).toBe(true)
+  } finally {
+    connections.dispose()
+    document.documentElement.lang = previous
+  }
+})

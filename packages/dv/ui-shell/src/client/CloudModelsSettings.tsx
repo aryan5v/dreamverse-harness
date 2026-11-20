@@ -412,8 +412,8 @@ function ProviderKeyForm({ provider, state, account, connections, onClose, embed
     return () => { document.removeEventListener('keydown', onKey) }
   }, [onClose])
   const saved = account?.status === 'connected' || account?.status === 'rejected' || account?.status === 'unavailable'
-  // The chat option is on while this key is the one the provider's own chat profile carries.
-  const chatEnabled = result === 'operator'
+  // The chat option follows the operator profile, so a key saved earlier still reads as enabled after a reload.
+  const chatEnabled = provider.operatorEnabled?.() === true || result === 'operator'
   const save = async (): Promise<void> => {
     setPending(true)
     setResult(null)
