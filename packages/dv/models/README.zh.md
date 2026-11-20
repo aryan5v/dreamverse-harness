@@ -216,12 +216,12 @@ DSH skill 注册表（`skills`）挂载期间，本服务从 `skills/video-model
 
 #### 模型看到什么
 
-DSH 工具注册表挂载期间，agent 看到工具 `dv_models_list`，带下面的描述。该工具有三个可选字符串参数：`modality`、`task` 和 `provider`。生成的工具目录不列出 DreamVerse 工具，所以本节引用工具描述和参数描述。一次调用返回一个文本块，内容是缩进的 JSON：一个数组，每个匹配条目一项，包含 `modality`、`task`、`provider`、`model` 和 `description`；条目有提示词 skill 时，还包含 `prompt_skill`，即该 skill 的名称。本包不向系统提示词添加任何内容。agent 只通过这两个工具和 `video-model-selection` skill 读取模型目录。
+DSH 工具注册表挂载期间，agent 看到工具 `dv_models_list`，带下面的描述。该工具有三个可选字符串参数：`modality`、`task` 和 `provider`。生成的工具目录不列出 DreamVerse 工具，所以本节引用工具描述和参数描述。一次调用返回一个文本块，内容是缩进的 JSON：一个数组，每个匹配条目一项，包含 `modality`、`task`、`provider`、`model` 和 `description`；条目声明相关信息时，还包含托管方式 `hosting`、工作器选择能力 `worker_selection` 和提示词 skill 名称 `prompt_skill`。本包不向系统提示词添加任何内容。agent 只通过这两个工具和 `video-model-selection` skill 读取模型目录。
 
 ##### dv_models_list 描述
 
 ```markdown
-List the models you can generate with, each with its key (modality, task, provider, model), its description and the name of its prompt skill, if it has one.
+List the models you can generate with, each with its key (modality, task, provider, model), its description and its hosting, worker selection, and prompt skill when available.
 ```
 
 ##### dv_models_list 参数描述

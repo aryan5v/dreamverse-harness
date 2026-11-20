@@ -216,12 +216,12 @@ Duration-based cloud providers may omit `frameSizes` and `numFramesByDurationSec
 
 #### What the model sees
 
-While the DSH tool registry is mounted, the agent sees the tool `dv_models_list` with the description below. The tool has three optional string arguments: `modality`, `task` and `provider`. The generated tool catalog does not list DreamVerse tools, so this section quotes the description and the argument descriptions. A call returns one text block with indented JSON: an array of `modality`, `task`, `provider`, `model` and `description` for each matching entry, with `prompt_skill`, the name of the entry's prompt skill, when the entry has one. This package adds nothing to the system prompt. The agent reads the catalog only through the two tools and the `video-model-selection` skill.
+While the DSH tool registry is mounted, the agent sees the tool `dv_models_list` with the description below. The tool has three optional string arguments: `modality`, `task` and `provider`. The generated tool catalog does not list DreamVerse tools, so this section quotes the description and the argument descriptions. A call returns one text block with indented JSON: an array of `modality`, `task`, `provider`, `model` and `description` for each matching entry, with `hosting`, `worker_selection`, and `prompt_skill` when the entry supplies them. This package adds nothing to the system prompt. The agent reads the catalog only through the two tools and the `video-model-selection` skill.
 
 ##### dv_models_list description
 
 ```markdown
-List the models you can generate with, each with its key (modality, task, provider, model), its description and the name of its prompt skill, if it has one.
+List the models you can generate with, each with its key (modality, task, provider, model), its description and its hosting, worker selection, and prompt skill when available.
 ```
 
 ##### dv_models_list argument descriptions
