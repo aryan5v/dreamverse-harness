@@ -177,7 +177,6 @@ describe('DeepSeekOnboardingDialog', () => {
     render(<DeepSeekOnboardingDialog {...h.props} />)
     expect(await screen.findByRole('dialog', { name: en.onboardingChooseTitle })).toBeTruthy()
     expect(document.getElementById('root')?.inert).toBe(true)
-    expect(screen.getByText(en.onboardingChooseDescription)).toBeTruthy()
     expect(screen.queryByLabelText(en.keyInput)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: en.onboardingOpenModels }))
     expect(h.openSection).toHaveBeenCalledWith('models')

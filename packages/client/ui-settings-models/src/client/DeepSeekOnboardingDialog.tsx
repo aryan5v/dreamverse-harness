@@ -95,7 +95,6 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
     // third party rather than the official route this step used to assume.
     return (
       <OnboardingModal title={t('onboardingChooseTitle')} focusTitle>
-        <p className={styles.description}>{t('onboardingChooseDescription')}</p>
         <div className={styles.actions}>
           <Button variant="outline" onClick={complete}>{t('onboardingChooseLater')}</Button>
           <Button variant="primary" onClick={() => { openSection('models'); complete() }}>
