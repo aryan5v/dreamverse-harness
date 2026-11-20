@@ -30,6 +30,8 @@ DreamVerse 套件默认挂载 `dv-openrouter`，不配置任何模型。在“�
 选择器仅显示已配置模型。兼容目录条目提供 T2V；模型目录为该模型列出图片输入时注册 REF2V，视频目录声明相应端点图像时注册 I2V 和 FL2V。每个图片模型注册为 T2I，因此 `image.generate`（`dv_image_generate`）可以使用它；每个语音模型注册为 T2A，因此 `audio.generate`（`dv_audio_generate`）可以使用它。API 模型不需要下载本地权重或加载 GPU。
 
 
+`GET /api/dv/openrouter/account` 检查主机配置的密钥，无需生成媒体。`status` 为 `missing`、`rejected`、`unavailable` 或 `connected`。连接成功时返回密钥的 `label`（如有）和 `balanceUsd`。余额来自 OpenRouter 账户额度，密钥无法读取时为 null。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
