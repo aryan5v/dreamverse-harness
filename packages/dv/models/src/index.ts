@@ -343,7 +343,7 @@ export default class DvModels extends Service {
     return defineTool({
       name: 'dv_models_list',
       description: 'List the models you can generate with, each with its key (modality, task, provider, model), its description '
-        + 'and the name of its prompt skill, if it has one.',
+        + 'and its hosting, worker selection, and prompt skill when available.',
       parameters: {
         modality: { type: 'string', description: 'Only models of this modality.' },
         task: { type: 'string', description: 'Only models for this task.' },

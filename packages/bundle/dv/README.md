@@ -60,7 +60,7 @@ The `dv-minimax-skills` and `dv-ui-minimax-skills` rows mount [`@dv/minimax-skil
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through the tools, the `dv:project` prompt section and the project state and update messages of `@dv/project`, the mention context of `@dv/chat-references`, and the skills the bundle mounts; the bundle itself adds no model-visible text.
+Indirectly, through the tools, the `dv:project` prompt section and the project state and update messages of `@dv/project`, the mention context of `@dv/chat-references`, and the skills the bundle mounts. The configured DreamVerse persona directs the agent to render text-only shots directly and consult hardware when the selected model supports worker selection.
 
 #### KV Cache effect
 
